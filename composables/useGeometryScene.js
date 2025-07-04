@@ -1,0 +1,696 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+export default function useGeometryScene() {
+  // Three.js variables
+  let scene, camera, renderer, clock, controls;
+  let plane, geometries = [];
+  let mouseX = 0, mouseY = 0;
+  let windowHalfX, windowHalfY;
+  let animationFrameId = null;
+  
+  // Initialize Three.js scene
+  const init = (container) => {
+    if (!container) {
+      console.error('Container is null or undefined');
+      return;
+    }
+    
+    try {
+      // Set up scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+      
+      // Get container dimensions
+      const containerRect = container.getBoundingClientRect();
+      const containerWidth = containerRect.width;
+      const containerHeight = containerRect.height;
+      
+      // Set up camera
+      const fov = 60;
+      const aspect = containerWidth / containerHeight;
+      const near = 0.1;
+      const far = 1000;
+      camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+      camera.position.set(0, 30, 70);
+      camera.lookAt(0, 0, 0);
+      
+      // Set up renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(containerWidth, containerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+      
+      // Set up controls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.enableZoom = true;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.5;
+      
+      // Set up clock for animations
+      clock = new THREE.Clock();
+      
+      // Add lights
+      addLights();
+      
+      // Create plane
+      createPlane();
+      
+      // Create various geometries
+      createGeometries();
+      
+      // Set container dimensions for mouse tracking
+      windowHalfX = containerWidth / 2;
+      windowHalfY = containerHeight / 2;
+      
+      // Add event listeners
+      document.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('resize', onWindowResize);
+      
+      // Start animation loop
+      animate();
+      
+      return { scene, camera, renderer };
+    } catch (error) {
+      console.error('Error initializing Three.js scene:', error);
+      cleanup(); // Clean up any resources that might have been created
+      return null;
+    }
+  };
+  
+  // Add enhanced lights to the scene
+  const addLights = () => {
+    if (!scene) return;
+    
+    try {
+      // Ambient light - slightly brighter
+      const ambientLight = new THREE.AmbientLight(0x505050, 1.2);
+      scene.add(ambientLight);
+      
+      // Main directional light (sun-like) with improved shadows
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      directionalLight.position.set(50, 100, 50);
+      directionalLight.castShadow = true;
+      directionalLight.shadow.mapSize.width = 4096; // Higher resolution shadows
+      directionalLight.shadow.mapSize.height = 4096;
+      directionalLight.shadow.camera.near = 0.5;
+      directionalLight.shadow.camera.far = 1000;
+      directionalLight.shadow.camera.left = -200;
+      directionalLight.shadow.camera.right = 200;
+      directionalLight.shadow.camera.top = 200;
+      directionalLight.shadow.camera.bottom = -200;
+      directionalLight.shadow.bias = -0.0001; // Reduce shadow acne
+      scene.add(directionalLight);
+      
+      // Add a helper to visualize the light direction (optional)
+      // const directionalLightHelper = new THREE.DirectionalLightHelper(directionalLight, 10);
+      // scene.add(directionalLightHelper);
+      
+      // Enhanced colored point lights with shadows
+      const pointLight1 = new THREE.PointLight(0x00ffff, 2, 150);
+      pointLight1.position.set(30, 40, 30);
+      pointLight1.castShadow = true;
+      pointLight1.shadow.mapSize.width = 1024;
+      pointLight1.shadow.mapSize.height = 1024;
+      scene.add(pointLight1);
+      
+      // Add light helper for debugging (optional)
+      // const pointLightHelper1 = new THREE.PointLightHelper(pointLight1, 5);
+      // scene.add(pointLightHelper1);
+      
+      const pointLight2 = new THREE.PointLight(0xff00ff, 2, 150);
+      pointLight2.position.set(-30, 40, -30);
+      pointLight2.castShadow = true;
+      pointLight2.shadow.mapSize.width = 1024;
+      pointLight2.shadow.mapSize.height = 1024;
+      scene.add(pointLight2);
+      
+      // Add a warm spotlight for dramatic effect
+      const spotLight = new THREE.SpotLight(0xff9900, 2, 200, Math.PI / 6, 0.5, 1);
+      spotLight.position.set(0, 100, 0);
+      spotLight.castShadow = true;
+      spotLight.shadow.mapSize.width = 1024;
+      spotLight.shadow.mapSize.height = 1024;
+      scene.add(spotLight);
+      
+      // Create a target for the spotlight to aim at
+      const spotLightTarget = new THREE.Object3D();
+      spotLightTarget.position.set(0, 0, 0);
+      scene.add(spotLightTarget);
+      spotLight.target = spotLightTarget;
+      
+      // Add a subtle hemisphere light for more natural lighting
+      const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.5);
+      scene.add(hemisphereLight);
+      
+      // Add fog to the scene for depth
+      scene.fog = new THREE.FogExp2(0x000000, 0.002);
+    } catch (error) {
+      console.error('Error adding lights:', error);
+    }
+  };
+  
+  // Create a plane for the ground that covers the entire screen
+  const createPlane = () => {
+    if (!scene) return;
+    
+    try {
+      // Create a much larger plane to ensure it covers the entire view
+      const planeGeometry = new THREE.PlaneGeometry(1500, 1500, 50, 50);
+      
+      // Create the main plane with a gradient material
+      const planeMaterial = new THREE.MeshStandardMaterial({
+        color: 0x111111,
+        roughness: 0.7,
+        metalness: 0.3,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.8
+      });
+      
+      plane = new THREE.Mesh(planeGeometry, planeMaterial);
+      plane.rotation.x = Math.PI / 2; // Rotate to be horizontal
+      plane.position.y = -5; // Lower position to ensure objects are above it
+      plane.receiveShadow = true;
+      
+      // Add a subtle ambient occlusion texture
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load(
+        'https://threejs.org/examples/textures/floors/FloorsCheckerboard_S_Diffuse.jpg',
+        function(texture) {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.repeat.set(20, 20); // Increased repeat for larger plane
+          planeMaterial.map = texture;
+          planeMaterial.needsUpdate = true;
+        },
+        undefined,
+        function(err) {
+          console.error('Error loading texture:', err);
+        }
+      );
+      
+      scene.add(plane);
+    } catch (error) {
+      console.error('Error creating plane:', error);
+    }
+  };
+  
+  // Create various geometries with collision detection capabilities
+  const createGeometries = () => {
+    if (!scene) return;
+    
+    try {
+      // Array of different geometry types
+      const geometryTypes = [
+        new THREE.BoxGeometry(5, 5, 5),
+        new THREE.SphereGeometry(3, 32, 32),
+        new THREE.ConeGeometry(3, 6, 32),
+        new THREE.TorusGeometry(3, 1, 16, 100),
+        new THREE.DodecahedronGeometry(3),
+        new THREE.OctahedronGeometry(3),
+        new THREE.TetrahedronGeometry(3),
+        new THREE.IcosahedronGeometry(3),
+        new THREE.TorusKnotGeometry(2, 0.6, 100, 16)
+      ];
+      
+      // Array of different materials with emissive properties for collision effects
+      const materials = [
+        new THREE.MeshStandardMaterial({ 
+          color: 0xff0000, 
+          roughness: 0.3, 
+          metalness: 0.7,
+          emissive: 0x330000
+        }),
+        new THREE.MeshStandardMaterial({ 
+          color: 0x00ff00, 
+          roughness: 0.5, 
+          metalness: 0.1,
+          emissive: 0x003300
+        }),
+        new THREE.MeshStandardMaterial({ 
+          color: 0x0000ff, 
+          roughness: 0.2, 
+          metalness: 0.8,
+          emissive: 0x000033
+        }),
+        new THREE.MeshPhysicalMaterial({ 
+          color: 0xffff00, 
+          roughness: 0.1, 
+          metalness: 0.9,
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.1,
+          emissive: 0x333300
+        }),
+        new THREE.MeshPhysicalMaterial({ 
+          color: 0xff00ff, 
+          roughness: 0.4, 
+          metalness: 0.6,
+          transmission: 0.5,
+          thickness: 2.0,
+          emissive: 0x330033
+        }),
+        new THREE.MeshPhongMaterial({ 
+          color: 0x00ffff, 
+          shininess: 100,
+          specular: 0xffffff,
+          emissive: 0x003333
+        }),
+        new THREE.MeshLambertMaterial({ 
+          color: 0xffffff,
+          emissive: 0x222222
+        }),
+        new THREE.MeshToonMaterial({ 
+          color: 0xff9900,
+          emissive: 0x331100
+        }),
+        new THREE.MeshNormalMaterial()
+      ];
+      
+      // Create 50 random geometries (increased from 25)
+      for (let i = 0; i < 50; i++) {
+        // Random geometry and material
+        const geometryIndex = Math.floor(Math.random() * geometryTypes.length);
+        const materialIndex = Math.floor(Math.random() * materials.length);
+        
+        // Clone to avoid sharing materials
+        const geometry = geometryTypes[geometryIndex].clone();
+        const material = materials[materialIndex].clone();
+        
+        // Random scale
+        const scale = 0.5 + Math.random() * 1.5;
+        
+        // Create mesh
+        const mesh = new THREE.Mesh(geometry, material);
+        
+        // Random position on the plane
+        mesh.position.x = (Math.random() - 0.5) * 100;
+        mesh.position.z = (Math.random() - 0.5) * 100;
+        mesh.position.y = Math.random() * 30 + 5; // Above the plane, higher range
+        
+        // Random rotation
+        mesh.rotation.x = Math.random() * Math.PI * 2;
+        mesh.rotation.y = Math.random() * Math.PI * 2;
+        mesh.rotation.z = Math.random() * Math.PI * 2;
+        
+        // Apply scale
+        mesh.scale.set(scale, scale, scale);
+        
+        // Enable shadows
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        
+        // Store animation and physics properties
+        mesh.userData.rotationSpeed = {
+          x: (Math.random() - 0.5) * 0.01,
+          y: (Math.random() - 0.5) * 0.01,
+          z: (Math.random() - 0.5) * 0.01
+        };
+        mesh.userData.floatSpeed = 0.05 + Math.random() * 0.1;
+        mesh.userData.floatHeight = Math.random() * 2;
+        mesh.userData.initialY = mesh.position.y;
+        
+        // Add physics properties for collision
+        mesh.userData.velocity = new THREE.Vector3(
+          (Math.random() - 0.5) * 0.1,
+          0,
+          (Math.random() - 0.5) * 0.1
+        );
+        mesh.userData.mass = scale * 10; // Mass based on scale
+        mesh.userData.restitution = 0.7 + Math.random() * 0.3; // Bounciness
+        mesh.userData.colliding = false; // Track collision state
+        mesh.userData.originalColor = mesh.material.color.clone();
+        mesh.userData.originalEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : new THREE.Color(0x000000);
+        
+        // Create a bounding sphere for collision detection
+        // Use the geometry's bounding sphere and adjust by scale
+        geometry.computeBoundingSphere();
+        const radius = geometry.boundingSphere.radius * scale;
+        mesh.userData.boundingSphere = new THREE.Sphere(
+          mesh.position.clone(),
+          radius
+        );
+        
+        // Add to scene and array
+        scene.add(mesh);
+        geometries.push(mesh);
+      }
+    } catch (error) {
+      console.error('Error creating geometries:', error);
+    }
+  };
+  
+  // Check for collisions between geometries
+  const checkCollisions = () => {
+    if (!geometries || geometries.length === 0) return;
+    
+    try {
+      // Reset collision states
+      geometries.forEach(mesh => {
+        if (mesh.userData.colliding) {
+          mesh.userData.colliding = false;
+          if (mesh.material.emissive) {
+            mesh.material.emissive.copy(mesh.userData.originalEmissive);
+            mesh.material.needsUpdate = true;
+          }
+        }
+      });
+      
+      // Check each pair of geometries for collisions
+      for (let i = 0; i < geometries.length; i++) {
+        const meshA = geometries[i];
+        if (!meshA || !meshA.userData) continue;
+        
+        // Update bounding sphere position
+        meshA.userData.boundingSphere.center.copy(meshA.position);
+        
+        for (let j = i + 1; j < geometries.length; j++) {
+          const meshB = geometries[j];
+          if (!meshB || !meshB.userData) continue;
+          
+          // Update bounding sphere position
+          meshB.userData.boundingSphere.center.copy(meshB.position);
+          
+          // Check for sphere-sphere intersection
+          const distance = meshA.position.distanceTo(meshB.position);
+          const sumRadii = meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius;
+          
+          if (distance < sumRadii) {
+            // Collision detected!
+            handleCollision(meshA, meshB);
+            
+            // Visual feedback for collision
+            if (meshA.material.emissive) {
+              meshA.material.emissive.set(0xff0000);
+              meshA.material.needsUpdate = true;
+            }
+            if (meshB.material.emissive) {
+              meshB.material.emissive.set(0xff0000);
+              meshB.material.needsUpdate = true;
+            }
+            
+            meshA.userData.colliding = true;
+            meshB.userData.colliding = true;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking collisions:', error);
+    }
+  };
+  
+  // Handle collision physics between two meshes
+  const handleCollision = (meshA, meshB) => {
+    try {
+      // Calculate collision normal
+      const normal = new THREE.Vector3().subVectors(meshB.position, meshA.position).normalize();
+      
+      // Calculate relative velocity
+      const relativeVelocity = new THREE.Vector3().subVectors(
+        meshB.userData.velocity,
+        meshA.userData.velocity
+      );
+      
+      // Calculate relative velocity along the normal
+      const velocityAlongNormal = relativeVelocity.dot(normal);
+      
+      // If objects are moving away from each other, no collision response needed
+      if (velocityAlongNormal > 0) return;
+      
+      // Calculate restitution (bounciness)
+      const restitution = Math.min(meshA.userData.restitution, meshB.userData.restitution);
+      
+      // Calculate impulse scalar
+      let impulseScalar = -(1 + restitution) * velocityAlongNormal;
+      impulseScalar /= (1 / meshA.userData.mass) + (1 / meshB.userData.mass);
+      
+      // Apply impulse
+      const impulse = normal.clone().multiplyScalar(impulseScalar);
+      
+      meshA.userData.velocity.sub(impulse.clone().multiplyScalar(1 / meshA.userData.mass));
+      meshB.userData.velocity.add(impulse.clone().multiplyScalar(1 / meshB.userData.mass));
+      
+      // Add a bit of random motion for more interesting behavior
+      meshA.userData.velocity.add(new THREE.Vector3(
+        (Math.random() - 0.5) * 0.02,
+        (Math.random() - 0.5) * 0.02,
+        (Math.random() - 0.5) * 0.02
+      ));
+      
+      meshB.userData.velocity.add(new THREE.Vector3(
+        (Math.random() - 0.5) * 0.02,
+        (Math.random() - 0.5) * 0.02,
+        (Math.random() - 0.5) * 0.02
+      ));
+      
+      // Slightly separate the objects to prevent sticking
+      const penetrationDepth = (meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius) - 
+                               meshA.position.distanceTo(meshB.position);
+      const correction = normal.clone().multiplyScalar(penetrationDepth * 0.5);
+      
+      meshA.position.sub(correction);
+      meshB.position.add(correction);
+    } catch (error) {
+      console.error('Error handling collision:', error);
+    }
+  };
+  
+  // Handle mouse movement
+  const onMouseMove = (event) => {
+    if (!renderer || !renderer.domElement || !renderer.domElement.parentElement) {
+      return;
+    }
+    
+    try {
+      const container = renderer.domElement.parentElement;
+      if (!container) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      
+      // Check if mouse is within container bounds
+      if (
+        event.clientX >= containerRect.left && 
+        event.clientX <= containerRect.right && 
+        event.clientY >= containerRect.top && 
+        event.clientY <= containerRect.bottom
+      ) {
+        // Calculate mouse position relative to container
+        mouseX = (event.clientX - containerRect.left - windowHalfX) * 0.05;
+        mouseY = (event.clientY - containerRect.top - windowHalfY) * 0.05;
+      }
+    } catch (error) {
+      console.error('Error handling mouse movement:', error);
+    }
+  };
+  
+  // Handle window resize
+  const onWindowResize = () => {
+    if (!renderer || !renderer.domElement || !renderer.domElement.parentElement) {
+      return;
+    }
+    
+    try {
+      // Get container dimensions
+      const container = renderer.domElement.parentElement;
+      const containerRect = container.getBoundingClientRect();
+      const containerWidth = containerRect.width;
+      const containerHeight = containerRect.height;
+      
+      windowHalfX = containerWidth / 2;
+      windowHalfY = containerHeight / 2;
+      
+      if (camera) {
+        camera.aspect = containerWidth / containerHeight;
+        camera.updateProjectionMatrix();
+      }
+      
+      renderer.setSize(containerWidth, containerHeight);
+    } catch (error) {
+      console.error('Error handling window resize:', error);
+    }
+  };
+  
+  // Animation loop
+  const animate = () => {
+    if (!scene || !camera || !renderer || !clock || !controls) {
+      return;
+    }
+    
+    try {
+      animationFrameId = requestAnimationFrame(animate);
+      
+      const delta = clock.getDelta();
+      const elapsedTime = clock.getElapsedTime();
+      
+      // Update controls
+      controls.update();
+      
+      // Check for collisions before updating positions
+      checkCollisions();
+      
+      // Animate geometries with physics
+      if (geometries && geometries.length > 0) {
+        geometries.forEach((mesh) => {
+          if (!mesh || !mesh.userData) return;
+          
+          // Apply gravity
+          mesh.userData.velocity.y -= 0.01; // Gravity effect
+          
+          // Apply velocity to position
+          mesh.position.x += mesh.userData.velocity.x;
+          mesh.position.y += mesh.userData.velocity.y;
+          mesh.position.z += mesh.userData.velocity.z;
+          
+          // Apply damping (air resistance)
+          mesh.userData.velocity.multiplyScalar(0.99);
+          
+          // Rotate each geometry
+          mesh.rotation.x += mesh.userData.rotationSpeed.x;
+          mesh.rotation.y += mesh.userData.rotationSpeed.y;
+          mesh.rotation.z += mesh.userData.rotationSpeed.z;
+          
+          // Float effect (reduced since we have physics now)
+          const floatEffect = Math.sin(elapsedTime * mesh.userData.floatSpeed) * 
+                           (mesh.userData.floatHeight * 0.3);
+          mesh.position.y += floatEffect * delta * 10; // Apply as delta-based adjustment
+          
+          // Boundary checks - bounce off invisible walls
+          const bounceRestitution = 0.7; // How bouncy the walls are
+          
+          // X boundaries (left/right walls)
+          if (Math.abs(mesh.position.x) > 120) {
+            mesh.position.x = Math.sign(mesh.position.x) * 120;
+            mesh.userData.velocity.x *= -bounceRestitution;
+          }
+          
+          // Z boundaries (front/back walls)
+          if (Math.abs(mesh.position.z) > 120) {
+            mesh.position.z = Math.sign(mesh.position.z) * 120;
+            mesh.userData.velocity.z *= -bounceRestitution;
+          }
+          
+          // Y boundaries (floor and ceiling)
+          if (mesh.position.y < 2) { // Floor collision
+            mesh.position.y = 2;
+            mesh.userData.velocity.y *= -bounceRestitution;
+            
+            // Add some friction when hitting the floor
+            mesh.userData.velocity.x *= 0.95;
+            mesh.userData.velocity.z *= 0.95;
+          } else if (mesh.position.y > 100) { // Ceiling collision
+            mesh.position.y = 100;
+            mesh.userData.velocity.y *= -bounceRestitution;
+          }
+          
+          // Visual effect for floor collision
+          if (mesh.position.y <= 2.1 && Math.abs(mesh.userData.velocity.y) < 0.02) {
+            // Object is resting on the floor
+            if (mesh.material.emissive && !mesh.userData.colliding) {
+              // Subtle glow effect for resting objects
+              const restingGlow = new THREE.Color(0x111111);
+              mesh.material.emissive.copy(restingGlow);
+              mesh.material.needsUpdate = true;
+            }
+          }
+        });
+      }
+      
+      // Render scene
+      renderer.render(scene, camera);
+    } catch (error) {
+      console.error('Error in animation loop:', error);
+      cancelAnimationFrame(animationFrameId);
+    }
+  };
+  
+  // Clean up resources
+  const cleanup = () => {
+    try {
+      // Clean up event listeners
+      document.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('resize', onWindowResize);
+      
+      // Stop animation loop
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      
+      // Dispose of Three.js resources
+      if (plane && plane.geometry) {
+        plane.geometry.dispose();
+        if (plane.material) {
+          if (Array.isArray(plane.material)) {
+            plane.material.forEach(material => material.dispose());
+          } else {
+            plane.material.dispose();
+          }
+        }
+        if (scene) scene.remove(plane);
+        plane = null;
+      }
+      
+      if (geometries && geometries.length > 0) {
+        geometries.forEach((mesh) => {
+          if (mesh) {
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) {
+              if (Array.isArray(mesh.material)) {
+                mesh.material.forEach(material => material.dispose());
+              } else {
+                mesh.material.dispose();
+              }
+            }
+            if (scene) scene.remove(mesh);
+          }
+        });
+        geometries = [];
+      }
+      
+      if (controls) {
+        controls.dispose();
+        controls = null;
+      }
+      
+      if (renderer) {
+        if (renderer.domElement && renderer.domElement.parentNode) {
+          renderer.domElement.parentNode.removeChild(renderer.domElement);
+        }
+        renderer.dispose();
+        renderer = null;
+      }
+      
+      // Clear other references
+      if (scene) {
+        // Dispose of any remaining objects in the scene
+        while(scene.children.length > 0) { 
+          const object = scene.children[0];
+          if (object.geometry) object.geometry.dispose();
+          if (object.material) {
+            if (Array.isArray(object.material)) {
+              object.material.forEach(material => material.dispose());
+            } else {
+              object.material.dispose();
+            }
+          }
+          scene.remove(object); 
+        }
+        scene = null;
+      }
+      
+      camera = null;
+      clock = null;
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+    }
+  };
+  
+  return {
+    init,
+    cleanup
+  };
+}
