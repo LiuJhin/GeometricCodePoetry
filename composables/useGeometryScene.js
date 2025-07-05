@@ -1,13 +1,26 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DragControls } from 'three/examples/jsm/controls/DragControls.js';
 
 export default function useGeometryScene() {
   // Three.js variables
-  let scene, camera, renderer, clock, controls;
+  let scene, camera, renderer, clock, controls, dragControls;
   let plane, geometries = [];
   let mouseX = 0, mouseY = 0;
   let windowHalfX, windowHalfY;
   let animationFrameId = null;
+  
+  // Mouse interaction variables
+  let mouseIndicator;
+  let raycaster;
+  let mouse;
+  let selectedObject = null;
+  let isDragging = false;
+  let intersectedObject = null;
+  let mouseScreenPosition = new THREE.Vector2();
+  let dragStartPosition = new THREE.Vector3();
+  let dragPlane = new THREE.Plane();
+  let dragOffset = new THREE.Vector3();
   
   // Initialize Three.js scene
   const init = (container) => {
@@ -43,13 +56,29 @@ export default function useGeometryScene() {
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       container.appendChild(renderer.domElement);
       
-      // Set up controls
+      // Set up orbit controls
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
       controls.enableZoom = true;
-      controls.autoRotate = true;
+      controls.autoRotate = false; // Disabled auto-rotation for better interaction
       controls.autoRotateSpeed = 0.5;
+      
+      // Set up raycaster for object selection
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+      
+      // Create mouse indicator (circular cursor)
+      createMouseIndicator();
+      
+      // Set up drag controls
+      dragControls = new DragControls(geometries, camera, renderer.domElement);
+      dragControls.addEventListener('dragstart', onDragStart);
+      dragControls.addEventListener('dragend', onDragEnd);
+      dragControls.addEventListener('drag', onDrag);
+      
+      // Disable drag controls initially (we'll handle dragging manually)
+      dragControls.enabled = false;
       
       // Set up clock for animations
       clock = new THREE.Clock();
@@ -70,6 +99,12 @@ export default function useGeometryScene() {
       // Add event listeners
       document.addEventListener('mousemove', onMouseMove);
       window.addEventListener('resize', onWindowResize);
+      renderer.domElement.addEventListener('mousedown', onMouseDown);
+      renderer.domElement.addEventListener('mouseup', onMouseUp);
+      renderer.domElement.addEventListener('click', onClick);
+      
+      // Make canvas interactive
+      renderer.domElement.style.pointerEvents = 'auto';
       
       // Start animation loop
       animate();
@@ -459,6 +494,53 @@ export default function useGeometryScene() {
     }
   };
   
+  // Create a circular mouse indicator
+  const createMouseIndicator = () => {
+    if (!scene) return;
+    
+    try {
+      // Create a ring geometry for the mouse indicator
+      const ringGeometry = new THREE.RingGeometry(1.5, 2, 32);
+      const ringMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.8,
+        depthTest: false
+      });
+      
+      // Create inner circle
+      const circleGeometry = new THREE.CircleGeometry(0.8, 32);
+      const circleMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.5,
+        depthTest: false
+      });
+      
+      // Create meshes
+      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      const circle = new THREE.Mesh(circleGeometry, circleMaterial);
+      
+      // Create a group to hold both parts
+      mouseIndicator = new THREE.Group();
+      mouseIndicator.add(ring);
+      mouseIndicator.add(circle);
+      
+      // Position in front of the camera
+      mouseIndicator.position.z = -10;
+      
+      // Add to scene
+      scene.add(mouseIndicator);
+      
+      // Make it follow the camera
+      camera.add(mouseIndicator);
+    } catch (error) {
+      console.error('Error creating mouse indicator:', error);
+    }
+  };
+  
   // Handle mouse movement
   const onMouseMove = (event) => {
     if (!renderer || !renderer.domElement || !renderer.domElement.parentElement) {
@@ -481,10 +563,189 @@ export default function useGeometryScene() {
         // Calculate mouse position relative to container
         mouseX = (event.clientX - containerRect.left - windowHalfX) * 0.05;
         mouseY = (event.clientY - containerRect.top - windowHalfY) * 0.05;
+        
+        // Update mouse position for raycaster (normalized device coordinates)
+        mouseScreenPosition.x = ((event.clientX - containerRect.left) / containerRect.width) * 2 - 1;
+        mouseScreenPosition.y = -((event.clientY - containerRect.top) / containerRect.height) * 2 + 1;
+        
+        // Update raycaster
+        raycaster.setFromCamera(mouseScreenPosition, camera);
+        
+        // Check for intersections with objects
+        if (!isDragging && geometries.length > 0) {
+          const intersects = raycaster.intersectObjects(geometries);
+          
+          // Reset previously intersected object
+          if (intersectedObject && (!intersects.length || intersects[0].object !== intersectedObject)) {
+            if (intersectedObject.material.emissive) {
+              intersectedObject.material.emissive.copy(intersectedObject.userData.originalEmissive);
+              intersectedObject.material.needsUpdate = true;
+            }
+            // Change cursor back to default
+            renderer.domElement.style.cursor = 'default';
+            
+            // Update mouse indicator color
+            if (mouseIndicator) {
+              mouseIndicator.children[0].material.color.set(0x00ffff);
+            }
+          }
+          
+          // Handle new intersection
+          if (intersects.length > 0) {
+            intersectedObject = intersects[0].object;
+            
+            // Highlight the object
+            if (intersectedObject.material.emissive) {
+              intersectedObject.material.emissive.set(0x00ffff);
+              intersectedObject.material.needsUpdate = true;
+            }
+            
+            // Change cursor to indicate draggable
+            renderer.domElement.style.cursor = 'grab';
+            
+            // Update mouse indicator color
+            if (mouseIndicator) {
+              mouseIndicator.children[0].material.color.set(0xff00ff);
+            }
+          } else {
+            intersectedObject = null;
+          }
+        }
+        
+        // Update mouse indicator position during drag
+        if (isDragging && selectedObject) {
+          // Update the drag plane to match the camera direction
+          dragPlane.setFromNormalAndCoplanarPoint(
+            camera.getWorldDirection(dragPlane.normal),
+            selectedObject.position
+          );
+          
+          // Cast a ray to find where on the plane the mouse is pointing
+          const intersects = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
+          
+          if (intersects) {
+            // Move the object, accounting for the initial offset
+            selectedObject.position.copy(intersects).sub(dragOffset);
+            
+            // Update the object's velocity to zero during dragging
+            selectedObject.userData.velocity.set(0, 0, 0);
+          }
+        }
       }
     } catch (error) {
       console.error('Error handling mouse movement:', error);
     }
+  };
+  
+  // Handle mouse down event
+  const onMouseDown = (event) => {
+    if (!renderer || !camera || event.button !== 0) return; // Only left mouse button
+    
+    try {
+      // If we're hovering over an object, select it for dragging
+      if (intersectedObject) {
+        selectedObject = intersectedObject;
+        isDragging = true;
+        
+        // Change cursor to grabbing
+        renderer.domElement.style.cursor = 'grabbing';
+        
+        // Disable orbit controls during drag
+        controls.enabled = false;
+        
+        // Store the initial position
+        dragStartPosition.copy(selectedObject.position);
+        
+        // Create a drag plane perpendicular to the camera
+        dragPlane.setFromNormalAndCoplanarPoint(
+          camera.getWorldDirection(dragPlane.normal),
+          selectedObject.position
+        );
+        
+        // Calculate the offset between the object position and the mouse position on the plane
+        const intersects = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
+        if (intersects) {
+          dragOffset.copy(intersects).sub(selectedObject.position);
+        }
+        
+        // Update mouse indicator
+        if (mouseIndicator) {
+          mouseIndicator.children[0].material.color.set(0xff0000);
+          mouseIndicator.scale.set(1.2, 1.2, 1.2);
+        }
+      }
+    } catch (error) {
+      console.error('Error handling mouse down:', error);
+    }
+  };
+  
+  // Handle mouse up event
+  const onMouseUp = (event) => {
+    if (event.button !== 0) return; // Only left mouse button
+    
+    try {
+      if (isDragging && selectedObject) {
+        // Apply a small random velocity when releasing
+        selectedObject.userData.velocity.set(
+          (Math.random() - 0.5) * 0.2,
+          (Math.random() - 0.5) * 0.2,
+          (Math.random() - 0.5) * 0.2
+        );
+        
+        // Reset dragging state
+        isDragging = false;
+        
+        // Change cursor back based on whether we're still hovering
+        renderer.domElement.style.cursor = intersectedObject ? 'grab' : 'default';
+        
+        // Re-enable orbit controls
+        controls.enabled = true;
+        
+        // Reset mouse indicator
+        if (mouseIndicator) {
+          mouseIndicator.scale.set(1, 1, 1);
+          mouseIndicator.children[0].material.color.set(
+            intersectedObject ? 0xff00ff : 0x00ffff
+          );
+        }
+      }
+      
+      selectedObject = null;
+    } catch (error) {
+      console.error('Error handling mouse up:', error);
+    }
+  };
+  
+  // Handle click event
+  const onClick = (event) => {
+    if (!intersectedObject || isDragging) return;
+    
+    try {
+      // Give the clicked object a boost upward
+      intersectedObject.userData.velocity.y += 0.5;
+      
+      // Add some random rotation
+      intersectedObject.userData.rotationSpeed = {
+        x: (Math.random() - 0.5) * 0.03,
+        y: (Math.random() - 0.5) * 0.03,
+        z: (Math.random() - 0.5) * 0.03
+      };
+    } catch (error) {
+      console.error('Error handling click:', error);
+    }
+  };
+  
+  // Drag event handlers for DragControls
+  const onDragStart = (event) => {
+    // This is handled by our custom onMouseDown
+  };
+  
+  const onDrag = (event) => {
+    // This is handled by our custom onMouseMove
+  };
+  
+  const onDragEnd = (event) => {
+    // This is handled by our custom onMouseUp
   };
   
   // Handle window resize
@@ -529,8 +790,20 @@ export default function useGeometryScene() {
       // Update controls
       controls.update();
       
-      // Check for collisions before updating positions
-      checkCollisions();
+      // Update mouse indicator animation
+      if (mouseIndicator) {
+        // Subtle pulsing animation
+        const pulse = 1 + Math.sin(elapsedTime * 5) * 0.05;
+        mouseIndicator.children[0].scale.set(pulse, pulse, 1);
+        
+        // Rotate the ring slightly
+        mouseIndicator.children[0].rotation.z += delta * 0.5;
+      }
+      
+      // Skip collision checks for objects being dragged
+      if (!isDragging) {
+        checkCollisions();
+      }
       
       // Animate geometries with physics
       if (geometries && geometries.length > 0) {
@@ -613,6 +886,12 @@ export default function useGeometryScene() {
       // Clean up event listeners
       document.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', onWindowResize);
+      
+      if (renderer && renderer.domElement) {
+        renderer.domElement.removeEventListener('mousedown', onMouseDown);
+        renderer.domElement.removeEventListener('mouseup', onMouseUp);
+        renderer.domElement.removeEventListener('click', onClick);
+      }
       
       // Stop animation loop
       if (animationFrameId !== null) {
