@@ -1,15 +1,34 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DragControls } from 'three/examples/jsm/controls/DragControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { gsap } from 'gsap';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
+import { GlitchPass } from 'three/examples/jsm/postprocessing/GlitchPass.js';
+import { HalftonePass } from 'three/examples/jsm/postprocessing/HalftonePass.js';
 
 export default function useGeometryScene() {
   // Three.js variables
   let scene, camera, renderer, clock, controls, dragControls;
+  let composer, renderPass, bloomPass, fxaaPass, filmPass, glitchPass, halftonePass; // 后处理变量
   let plane, geometries = [];
   let mouseX = 0, mouseY = 0;
   let windowHalfX, windowHalfY;
   let animationFrameId = null;
+  
+  // 科技感元素
+  let particleSystem, gridHelper, hologramGroup;
+  let scanLine, scanLinePosition = 0;
+  let techEffectsTime = 0;
+  let techMaterials = [];
+  let glowingEdges = [];
+  let dataTexts = [];
   
   // Mouse interaction variables
   let mouseIndicator;
@@ -50,21 +69,58 @@ export default function useGeometryScene() {
       camera.position.set(120, 80, 150);
       camera.lookAt(0, 0, 0);
       
-      // Set up renderer
-      renderer = new THREE.WebGLRenderer({ antialias: true });
+      // 设置极度优化的渲染器
+      renderer = new THREE.WebGLRenderer({ 
+        antialias: false,    // 禁用抗锯齿以提高性能
+        powerPreference: 'high-performance',
+        alpha: false,        // 禁用透明度以提高性能
+        stencil: false,      // 禁用模板缓冲区以提高性能
+        depth: true,         // 保留深度缓冲区
+        precision: 'lowp',   // 使用低精度以提高性能
+        logarithmicDepthBuffer: false // 禁用对数深度缓冲区以提高性能
+      });
       renderer.setSize(containerWidth, containerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(0.75); // 使用更低的像素比以提高性能
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.shadowMap.type = THREE.BasicShadowMap; // 使用基础阴影映射以提高性能
+      renderer.shadowMap.autoUpdate = false; // 禁用阴影自动更新
+      renderer.physicallyCorrectLights = false; // 禁用物理正确的光照以提高性能
+      renderer.outputEncoding = THREE.LinearEncoding; // 使用线性编码以提高性能
+      renderer.toneMapping = THREE.NoToneMapping; // 禁用色调映射以提高性能
+      renderer.toneMappingExposure = 1.0; // 使用默认曝光值
       container.appendChild(renderer.domElement);
       
-      // Set up orbit controls
+      // 极简后处理效果，只保留必要的通道
+      composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(containerWidth * 0.5, containerHeight * 0.5)); // 降低渲染目标分辨率
+      
+      // 添加基本渲染通道 - 必须保留
+      renderPass = new RenderPass(scene, camera);
+      composer.addPass(renderPass);
+      
+      // 极简辉光效果 - 只在特殊情况下启用
+      bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(containerWidth / 8, containerHeight / 8), // 极低分辨率
+        0.05,   // 极低强度
+        0.05,   // 极低半径
+        0.95    // 极高阈值
+      );
+      composer.addPass(bloomPass);
+      
+      // 完全移除其他后处理效果
+      fxaaPass = null;
+      filmPass = null;
+      glitchPass = null;
+      halftonePass = null;
+      
+      // 设置简化的轨道控制器
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
-      controls.dampingFactor = 0.05;
+      controls.dampingFactor = 0.1; // 增加阻尼以减少更新频率
       controls.enableZoom = true;
-      controls.autoRotate = false; // Disabled auto-rotation for better interaction
-      controls.autoRotateSpeed = 0.5;
+      controls.autoRotate = false;
+      controls.rotateSpeed = 0.5; // 降低旋转速度
+      controls.zoomSpeed = 0.5; // 降低缩放速度
+      controls.enablePan = false; // 禁用平移以减少计算
       
       // Set up raycaster for object selection
       raycaster = new THREE.Raycaster();
@@ -85,6 +141,9 @@ export default function useGeometryScene() {
       // Set up clock for animations
       clock = new THREE.Clock();
       
+      // 添加科技感元素
+      createGeometryTechEnvironment();
+      
       // Add lights
       addLights();
       
@@ -93,6 +152,15 @@ export default function useGeometryScene() {
       
       // Create various geometries
       createGeometries();
+      
+      // 创建粒子系统
+      createParticleSystem();
+      
+      // 创建全息投影效果
+      createHologramEffect();
+      
+      // 创建扫描线效果
+      createScanLine();
       
       // Set container dimensions for mouse tracking
       windowHalfX = containerWidth / 2;
@@ -122,299 +190,511 @@ export default function useGeometryScene() {
     }
   };
   
-  // Add enhanced lights to the scene
+  // 极简光照设置 - 优化性能
   const addLights = () => {
     if (!scene) return;
     
     try {
-      // Ambient light - 显著增强环境光亮度
-      const ambientLight = new THREE.AmbientLight(0x606060, 1.8);
+      // 创建灯光组，便于管理
+      const lightGroup = new THREE.Group();
+      scene.add(lightGroup);
+      
+      // 增强环境光 - 提供足够的基础亮度，减少其他光源需求
+      const ambientLight = new THREE.AmbientLight(0x808080, 3.5);
       scene.add(ambientLight);
       
-      // Main directional light (sun-like) with improved shadows - 增强强度
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      // 主平行光 - 简化阴影设置
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 3.0);
       directionalLight.position.set(50, 100, 50);
       directionalLight.castShadow = true;
-      directionalLight.shadow.mapSize.width = 4096; // Higher resolution shadows
-      directionalLight.shadow.mapSize.height = 4096;
+      // 降低阴影贴图分辨率以提高性能
+      directionalLight.shadow.mapSize.width = 512; 
+      directionalLight.shadow.mapSize.height = 512;
       directionalLight.shadow.camera.near = 0.5;
-      directionalLight.shadow.camera.far = 1000;
-      directionalLight.shadow.camera.left = -200;
-      directionalLight.shadow.camera.right = 200;
-      directionalLight.shadow.camera.top = 200;
-      directionalLight.shadow.camera.bottom = -200;
-      directionalLight.shadow.bias = -0.0001; // Reduce shadow acne
-      scene.add(directionalLight);
+      directionalLight.shadow.camera.far = 500;
+      directionalLight.shadow.camera.left = -100;
+      directionalLight.shadow.camera.right = 100;
+      directionalLight.shadow.camera.top = 100;
+      directionalLight.shadow.camera.bottom = -100;
+      directionalLight.shadow.bias = -0.0001;
+      directionalLight.shadow.radius = 4; // 增加阴影模糊以掩盖低分辨率
+      lightGroup.add(directionalLight);
       
-      // Add a helper to visualize the light direction (optional)
-      // const directionalLightHelper = new THREE.DirectionalLightHelper(directionalLight, 10);
-      // scene.add(directionalLightHelper);
-      
-      // Enhanced colored point lights with shadows - 增强强度和范围
-      const pointLight1 = new THREE.PointLight(0x00ffff, 4, 200);
+      // 只保留两个关键点光源，移除阴影投射
+      // 点光源1 - 青色
+      const pointLight1 = new THREE.PointLight(0x00ffff, 8, 150);
       pointLight1.position.set(30, 40, 30);
-      pointLight1.castShadow = true;
-      pointLight1.shadow.mapSize.width = 1024;
-      pointLight1.shadow.mapSize.height = 1024;
-      scene.add(pointLight1);
+      pointLight1.castShadow = false; // 关闭阴影以提高性能
+      lightGroup.add(pointLight1);
       
-      // Add light helper for debugging (optional)
-      // const pointLightHelper1 = new THREE.PointLightHelper(pointLight1, 5);
-      // scene.add(pointLightHelper1);
-      
-      const pointLight2 = new THREE.PointLight(0xff00ff, 4, 200);
+      // 点光源2 - 紫色
+      const pointLight2 = new THREE.PointLight(0xff00ff, 8, 150);
       pointLight2.position.set(-30, 40, -30);
-      pointLight2.castShadow = true;
-      pointLight2.shadow.mapSize.width = 1024;
-      pointLight2.shadow.mapSize.height = 1024;
-      scene.add(pointLight2);
+      pointLight2.castShadow = false;
+      lightGroup.add(pointLight2);
       
-      // Add a warm spotlight for dramatic effect - 增强强度和范围
-      const spotLight = new THREE.SpotLight(0xff9900, 5, 300, Math.PI / 6, 0.5, 1);
-      spotLight.position.set(0, 100, 0);
-      spotLight.castShadow = true;
-      spotLight.shadow.mapSize.width = 1024;
-      spotLight.shadow.mapSize.height = 1024;
-      scene.add(spotLight);
+      // 移除其他点光源和聚光灯
       
-      // Create a target for the spotlight to aim at
-      const spotLightTarget = new THREE.Object3D();
-      spotLightTarget.position.set(0, 0, 0);
-      scene.add(spotLightTarget);
-      spotLight.target = spotLightTarget;
-      
-      // Add a stronger hemisphere light for more natural lighting
-      const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1.0);
+      // 保留半球光以提供基础照明
+      const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 2.0);
       scene.add(hemisphereLight);
       
-      // 添加额外的点光源增强整体亮度
-      const pointLight3 = new THREE.PointLight(0xffffff, 3, 200);
-      pointLight3.position.set(0, 80, 0);
-      scene.add(pointLight3);
+      // 简化雾效
+      scene.fog = new THREE.FogExp2(0x000814, 0.001);
       
-      // Add fog to the scene for depth
-      scene.fog = new THREE.FogExp2(0x000000, 0.002);
+      // 存储灯光组以便在动画中使用
+      scene.userData.lightGroup = lightGroup;
+      
+      // 简化灯光动画，降低更新频率
+      scene.userData.animateLights = (delta) => {
+        // 只在需要时更新灯光位置
+        const time = Date.now() * 0.0005; // 降低动画速度
+        
+        if (pointLight1 && pointLight2) {
+          // 简化点光源1动画
+          pointLight1.position.x = Math.sin(time * 0.3) * 40;
+          pointLight1.position.z = Math.cos(time * 0.3) * 40;
+          
+          // 简化点光源2动画
+          pointLight2.position.x = Math.sin(time * 0.4 + 2) * 40;
+          pointLight2.position.z = Math.cos(time * 0.4 + 2) * 40;
+        }
+      };
     } catch (error) {
       console.error('Error adding lights:', error);
     }
   };
   
-  // Create a plane for the ground that covers the entire screen
+  // 创建简化科技感环境
+  const createGeometryTechEnvironment = () => {
+    if (!scene) return;
+    
+    try {
+      // 创建网格地面 - 减少网格密度
+      const gridSize = 1000;
+      const gridDivisions = 50; // 大幅减少网格线数量
+      gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x00ffff, 0x004444);
+      gridHelper.position.y = 0.1; // 稍微抬高，避免与反射地面冲突
+      gridHelper.material.transparent = true;
+      gridHelper.material.opacity = 0.3;
+      scene.add(gridHelper);
+      
+      // 创建坐标轴辅助（科技感元素）
+      const axesHelper = new THREE.AxesHelper(20);
+      axesHelper.position.set(-700, 0.2, -700); // 放在场景边缘
+      scene.add(axesHelper);
+      
+      // 使用简单的立方体贴图代替HDR环境贴图，提高性能
+      // 创建一个简单的渐变背景，减少加载时间和内存占用
+      const bgColor1 = new THREE.Color(0x000814); // 深蓝色
+      const bgColor2 = new THREE.Color(0x001428); // 稍亮的蓝色
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      
+      const context = canvas.getContext('2d');
+      const gradient = context.createLinearGradient(0, 0, 0, 2);
+      gradient.addColorStop(0, '#' + bgColor1.getHexString());
+      gradient.addColorStop(1, '#' + bgColor2.getHexString());
+      
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 2, 2);
+      
+      const bgTexture = new THREE.CanvasTexture(canvas);
+      bgTexture.wrapS = THREE.RepeatWrapping;
+      bgTexture.wrapT = THREE.RepeatWrapping;
+      
+      scene.background = bgTexture;
+      
+      // 创建一个简单的环境贴图，用于基本反射
+      const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(128); // 非常低的分辨率
+      const cubeCamera = new THREE.CubeCamera(0.1, 1000, cubeRenderTarget);
+      cubeCamera.position.set(0, 30, 0);
+      scene.add(cubeCamera);
+      
+      // 设置场景的环境贴图
+      scene.environment = cubeRenderTarget.texture;
+      
+      // 只更新一次立方体相机，而不是每帧更新
+      cubeCamera.update(renderer, scene);
+    } catch (error) {
+      console.error('Error creating tech environment:', error);
+    }
+  };
+  
+  // 创建极简粒子系统
+  const createParticleSystem = () => {
+    if (!scene) return;
+    
+    try {
+      // 创建粒子几何体 - 大幅减少粒子数量
+      const particlesGeometry = new THREE.BufferGeometry();
+      const particleCount = 500; // 从2000减少到500
+      
+      // 创建粒子位置数组
+      const positions = new Float32Array(particleCount * 3);
+      const colors = new Float32Array(particleCount * 3);
+      const sizes = new Float32Array(particleCount);
+      
+      // 设置粒子位置、颜色和大小
+      for (let i = 0; i < particleCount; i++) {
+        // 位置 - 在较小范围内随机分布，减少视觉复杂度
+        positions[i * 3] = (Math.random() - 0.5) * 600; // x
+        positions[i * 3 + 1] = Math.random() * 300; // y
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 600; // z
+        
+        // 简化颜色 - 只使用一种颜色
+        // 青色
+        colors[i * 3] = 0;
+        colors[i * 3 + 1] = 1;
+        colors[i * 3 + 2] = 1;
+        
+        // 统一大小 - 减少计算
+        sizes[i] = 1.5;
+      }
+      
+      // 设置几何体属性
+      particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      particlesGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      particlesGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+      
+      // 创建粒子材质 - 简化混合模式
+      const particlesMaterial = new THREE.PointsMaterial({
+        size: 1,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.6, // 降低不透明度
+        blending: THREE.NormalBlending, // 使用普通混合代替加法混合
+        sizeAttenuation: true,
+        depthWrite: false
+      });
+      
+      // 创建粒子系统
+      particleSystem = new THREE.Points(particlesGeometry, particlesMaterial);
+      particleSystem.name = 'techParticles';
+      scene.add(particleSystem);
+    } catch (error) {
+      console.error('Error creating particle system:', error);
+    }
+  };
+  
+  // 创建简化全息投影效果
+  const createHologramEffect = () => {
+    if (!scene) return;
+    
+    try {
+      // 创建全息投影组
+      hologramGroup = new THREE.Group();
+      hologramGroup.position.set(0, 30, 0);
+      scene.add(hologramGroup);
+      
+      // 创建全息圆环 - 减少几何体复杂度
+      const ringGeometry = new THREE.RingGeometry(10, 10.5, 32); // 从64段减少到32段
+      const ringMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        side: THREE.FrontSide, // 只渲染正面以提高性能
+        transparent: true,
+        opacity: 0.5 // 降低不透明度
+      });
+      
+      // 减少环的数量，从5个减少到3个
+      for (let i = 0; i < 3; i++) {
+        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        ring.rotation.x = Math.PI / 2; // 水平放置
+        ring.position.y = i * 3 - 3; // 垂直分布
+        ring.scale.set(1 - i * 0.2, 1 - i * 0.2, 1); // 逐渐缩小
+        hologramGroup.add(ring);
+      }
+      
+      // 简化垂直扫描线
+      const scanGeometry = new THREE.PlaneGeometry(20, 40); // 减小尺寸
+      const scanMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.2,
+        side: THREE.FrontSide // 只渲染正面
+      });
+      
+      const verticalScan = new THREE.Mesh(scanGeometry, scanMaterial);
+      verticalScan.rotation.y = Math.PI / 2;
+      hologramGroup.add(verticalScan);
+      
+      // 简化数据文本效果 - 直接在这里创建，不调用单独的函数
+      // 创建虚拟数据显示 - 减少数量
+      const dataGeometry = new THREE.PlaneGeometry(4, 0.5);
+      const dataMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.FrontSide
+      });
+      
+      // 只创建4行数据，而不是10行
+      for (let i = 0; i < 4; i++) {
+        const dataPlane = new THREE.Mesh(dataGeometry, dataMaterial);
+        dataPlane.position.set(-5, i * 1.2 - 2, -5);
+        hologramGroup.add(dataPlane);
+        dataTexts.push(dataPlane);
+      }
+    } catch (error) {
+      console.error('Error creating hologram effect:', error);
+    }
+  };
+  
+  // 移除单独的createHologramText函数，将其合并到createHologramEffect中
+  
+  // 创建简化扫描线效果
+  const createScanLine = () => {
+    if (!scene) return;
+    
+    try {
+      // 创建扫描线平面 - 减小尺寸
+      const scanLineGeometry = new THREE.PlaneGeometry(800, 1); // 减小尺寸和厚度
+      const scanLineMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.2, // 降低不透明度
+        side: THREE.FrontSide // 只渲染正面以提高性能
+      });
+      
+      scanLine = new THREE.Mesh(scanLineGeometry, scanLineMaterial);
+      scanLine.rotation.x = Math.PI / 2; // 水平放置
+      scanLine.position.y = 0.5; // 稍微抬高，避免与地面冲突
+      scene.add(scanLine);
+    } catch (error) {
+      console.error('Error creating scan line:', error);
+    }
+  };
+  
+  // 创建简化地面平面 - 大幅降低反射质量以提高性能
   const createPlane = () => {
     if (!scene) return;
     
     try {
-      // Create a much larger plane to ensure it covers the entire view
-      const planeGeometry = new THREE.PlaneGeometry(1500, 1500, 50, 50);
+      // 使用简单的平面几何体代替高质量反射
+      const planeGeometry = new THREE.PlaneGeometry(1000, 1000, 1, 1); // 极简几何体，无细分
       
-      // Create the main plane with a gradient material
+      // 创建简单的材质，不使用复杂的反射
       const planeMaterial = new THREE.MeshStandardMaterial({
         color: 0x111111,
-        roughness: 0.7,
-        metalness: 0.3,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.8
+        metalness: 0.7,
+        roughness: 0.3,
+        envMapIntensity: 0.5
       });
       
+      // 创建平面
       plane = new THREE.Mesh(planeGeometry, planeMaterial);
-      plane.rotation.x = Math.PI / 2; // Rotate to be horizontal
-      plane.position.y = -5; // Lower position to ensure objects are above it
+      plane.rotation.x = -Math.PI / 2; // 旋转为水平面
+      plane.position.y = 0; // 地板位置
       plane.receiveShadow = true;
+      plane.name = 'floor'; // 添加名称以便于识别
+      scene.add(plane);
       
-      // Add a subtle ambient occlusion texture
-      const textureLoader = new THREE.TextureLoader();
-      textureLoader.load(
-        'https://threejs.org/examples/textures/floors/FloorsCheckerboard_S_Diffuse.jpg',
-        function(texture) {
-          texture.wrapS = THREE.RepeatWrapping;
-          texture.wrapT = THREE.RepeatWrapping;
-          texture.repeat.set(20, 20); // Increased repeat for larger plane
-          planeMaterial.map = texture;
-          planeMaterial.needsUpdate = true;
-        },
-        undefined,
-        function(err) {
-          console.error('Error loading texture:', err);
-        }
-      );
+      // 添加兼容性方法
+      plane.userData.isReflective = false; // 标记为非反射
+      plane.userData.updateReflection = () => {
+        // 空方法，保留兼容性
+      };
+      
+      // 添加简化的地板网格线效果
+      const gridSize = 1000;
+      const gridDivisions = 50; // 大幅减少网格线数量
+      const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x00ffff, 0x004444);
+      gridHelper.position.y = 0.01; // 稍微抬高，避免与地面冲突
+      gridHelper.material.transparent = true;
+      gridHelper.material.opacity = 0.15; // 降低不透明度，使其更微妙
+      scene.add(gridHelper);
       
       scene.add(plane);
     } catch (error) {
-      console.error('Error creating plane:', error);
+      console.error('Error creating mirror plane:', error);
     }
   };
   
-  // Create various geometries with collision detection capabilities
+  // 生成噪声纹理数据 - 用于凹凸贴图
+  const generateNoiseTexture = (width, height) => {
+    const size = width * height * 4; // RGBA格式，每个像素4个值
+    const data = new Float32Array(size);
+    
+    for (let i = 0; i < size; i += 4) {
+      // 生成随机噪声值
+      const noise = Math.random() * 0.5 + 0.5; // 0.5-1.0范围内的值，使纹理更加细腻
+      
+      // 设置RGBA值
+      data[i] = noise;     // R
+      data[i + 1] = noise; // G
+      data[i + 2] = noise; // B
+      data[i + 3] = 1.0;   // A (不透明)
+    }
+    
+    return data;
+  };
+  
+  // 生成法线贴图数据
+  const generateNormalMap = (width, height, strength = 1.0) => {
+    // 首先生成高度图
+    const heightData = new Float32Array(width * height);
+    for (let i = 0; i < width * height; i++) {
+      // 使用Perlin噪声或分形噪声会更好，但这里用简单随机作为示例
+      heightData[i] = Math.random();
+    }
+    
+    // 从高度图生成法线贴图
+    const normalData = new Float32Array(width * height * 4);
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = (y * width + x) * 4;
+        
+        // 计算相邻像素的高度差（使用环绕方式处理边界）
+        const left = heightData[y * width + (x > 0 ? x - 1 : width - 1)];
+        const right = heightData[y * width + (x < width - 1 ? x + 1 : 0)];
+        const top = heightData[(y > 0 ? y - 1 : height - 1) * width + x];
+        const bottom = heightData[(y < height - 1 ? y + 1 : 0) * width + x];
+        
+        // 计算法线向量 (使用Sobel算子)
+        const dx = (right - left) * strength;
+        const dy = (bottom - top) * strength;
+        const dz = 1.0 / Math.sqrt(dx * dx + dy * dy + 1);
+        
+        // 将法线向量转换为RGB颜色 (范围从[-1,1]转换到[0,1])
+        normalData[index] = (dx * dz * 0.5 + 0.5);
+        normalData[index + 1] = (dy * dz * 0.5 + 0.5);
+        normalData[index + 2] = dz * 0.5 + 0.5;
+        normalData[index + 3] = 1.0;
+      }
+    }
+    
+    return normalData;
+  };
+  
+  // 生成金属纹理数据 - 用于金属度贴图
+  const generateMetalnessTexture = (width, height) => {
+    const size = width * height * 4;
+    const data = new Float32Array(size);
+    
+    for (let i = 0; i < size; i += 4) {
+      // 创建金属度变化，形成金属与非金属的过渡区域
+      let metalness;
+      
+      // 添加一些随机的金属纹理图案
+      const x = (i / 4) % width;
+      const y = Math.floor((i / 4) / width);
+      
+      // 创建一些条纹或图案
+      const pattern = Math.sin(x * 0.2) * Math.cos(y * 0.2) * 0.5 + 0.5;
+      metalness = Math.min(1.0, Math.max(0.7, pattern + Math.random() * 0.3));
+      
+      // 设置RGBA值
+      data[i] = metalness;     // R
+      data[i + 1] = metalness; // G
+      data[i + 2] = metalness; // B
+      data[i + 3] = 1.0;       // A
+    }
+    
+    return data;
+  };
+  
+  // 创建几何体 - 优化版本
   const createGeometries = () => {
     if (!scene) return;
     
     try {
-      // Array of different geometry types
+      // 极度简化几何体，使用最低细分度
       const geometryTypes = [
-        new THREE.BoxGeometry(5, 5, 5),
-        new THREE.SphereGeometry(3, 32, 32),
-        new THREE.ConeGeometry(3, 6, 32),
-        new THREE.TorusGeometry(3, 1, 16, 100),
-        new THREE.DodecahedronGeometry(3),
-        new THREE.OctahedronGeometry(3),
-        new THREE.TetrahedronGeometry(3),
-        new THREE.IcosahedronGeometry(3),
-        new THREE.TorusKnotGeometry(2, 0.6, 100, 16)
+        new THREE.BoxGeometry(5, 5, 5, 1, 1, 1), // 立方体 - 最低细分
+        new THREE.SphereGeometry(3, 8, 6), // 球体 - 极低细分
+        new THREE.ConeGeometry(3, 6, 8, 1), // 圆锥 - 极低径向细分
+        new THREE.OctahedronGeometry(3, 0), // 八面体 - 无细分
+        new THREE.TetrahedronGeometry(3, 0) // 四面体 - 无细分
       ];
       
-      // Array of different materials with emissive properties for collision effects
-      const materials = [
-        new THREE.MeshStandardMaterial({ 
-          color: 0xff0000, 
-          roughness: 0.3, 
-          metalness: 0.7,
-          emissive: 0x330000
-        }),
-        new THREE.MeshStandardMaterial({ 
-          color: 0x00ff00, 
-          roughness: 0.5, 
-          metalness: 0.1,
-          emissive: 0x003300
-        }),
-        new THREE.MeshStandardMaterial({ 
-          color: 0x0000ff, 
-          roughness: 0.2, 
-          metalness: 0.8,
-          emissive: 0x000033
-        }),
-        new THREE.MeshPhysicalMaterial({ 
-          color: 0xffff00, 
-          roughness: 0.1, 
-          metalness: 0.9,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.1,
-          emissive: 0x333300
-        }),
-        new THREE.MeshPhysicalMaterial({ 
-          color: 0xff00ff, 
-          roughness: 0.4, 
-          metalness: 0.6,
-          transmission: 0.5,
-          thickness: 2.0,
-          emissive: 0x330033
-        }),
-        new THREE.MeshPhongMaterial({ 
-          color: 0x00ffff, 
-          shininess: 100,
-          specular: 0xffffff,
-          emissive: 0x003333
-        }),
-        new THREE.MeshLambertMaterial({ 
-          color: 0xffffff,
-          emissive: 0x222222
-        }),
-        new THREE.MeshToonMaterial({ 
-          color: 0xff9900,
-          emissive: 0x331100
-        }),
-        new THREE.MeshNormalMaterial()
+      // 为所有几何体添加法线计算，但移除切线计算
+      geometryTypes.forEach(geometry => {
+        geometry.computeVertexNormals();
+      });
+      
+      // 创建极简科技材质 - 最大化性能
+      const createTechMaterial = (color) => {
+        // 完全移除纹理，使用纯色材质
+        const material = new THREE.MeshLambertMaterial({ 
+          color: color,
+          emissive: 0x000000,
+          emissiveIntensity: 0.05,
+          side: THREE.FrontSide, // 只渲染正面
+          flatShading: true // 使用平面着色进一步减少计算
+        });
+        
+        // 将材质添加到科技材质数组中
+        techMaterials.push(material);
+        
+        return material;
+      };
+      
+      // 极简颜色 - 只使用一种颜色
+      const techColors = [
+        0x0088ff, // 蓝色
       ];
       
-      // Create 50 random geometries (increased from 25)
-      for (let i = 0; i < 50; i++) {
-        // Random geometry and material
+      // 创建科技感材质
+      const materials = techColors.map(color => createTechMaterial(color));
+      
+      // 极度减少几何体数量从15个到8个
+      for (let i = 0; i < 8; i++) {
+        // 随机几何体和材质
         const geometryIndex = Math.floor(Math.random() * geometryTypes.length);
-        const materialIndex = Math.floor(Math.random() * materials.length);
         
-        // Clone to avoid sharing materials
+        // 克隆几何体，共享材质以减少材质状态切换
         const geometry = geometryTypes[geometryIndex].clone();
-        const material = materials[materialIndex].clone();
+        const material = materials[0]; // 使用同一种材质
         
-        // Random scale
-        const scale = 0.5 + Math.random() * 1.5;
+        // 固定缩放比例
+        const scale = 1.0;
         
-        // Create mesh
+        // 创建网格
         const mesh = new THREE.Mesh(geometry, material);
         
-        // Random position on the plane
-        mesh.position.x = (Math.random() - 0.5) * 100;
-        mesh.position.z = (Math.random() - 0.5) * 100;
-        mesh.position.y = Math.random() * 30 + 5; // Above the plane, higher range
+        // 固定位置，减少随机性
+        const angle = (i / 8) * Math.PI * 2; // 均匀分布在圆周上
+        const radius = 30;
+        mesh.position.x = Math.cos(angle) * radius;
+        mesh.position.z = Math.sin(angle) * radius;
+        mesh.position.y = 20; // 固定高度
         
-        // Random rotation
-        mesh.rotation.x = Math.random() * Math.PI * 2;
+        // 固定旋转
         mesh.rotation.y = Math.random() * Math.PI * 2;
-        mesh.rotation.z = Math.random() * Math.PI * 2;
         
-        // Apply scale
+        // 应用缩放
         mesh.scale.set(scale, scale, scale);
         
-        // Enable shadows
-        mesh.castShadow = true;
+        // 阴影设置 - 只有一半的物体投射阴影
+        mesh.castShadow = i % 2 === 0;
         mesh.receiveShadow = true;
         
-        // Store animation and physics properties
+        // 移除自定义阴影材质
+        
+        // 极简动画属性
         mesh.userData.rotationSpeed = {
-          x: (Math.random() - 0.5) * 0.01,
-          y: (Math.random() - 0.5) * 0.01,
-          z: (Math.random() - 0.5) * 0.01
+          y: 0.002 // 固定旋转速度
         };
-        mesh.userData.floatSpeed = 0.05 + Math.random() * 0.1;
-        mesh.userData.floatHeight = Math.random() * 2;
-        mesh.userData.initialY = mesh.position.y;
         
-        // Add physics properties for collision
-        mesh.userData.velocity = new THREE.Vector3(
-          (Math.random() - 0.5) * 0.1,
-          0,
-          (Math.random() - 0.5) * 0.1
-        );
-        mesh.userData.mass = scale * 10; // Mass based on scale
-        mesh.userData.restitution = 0.7 + Math.random() * 0.3; // Bounciness
-        mesh.userData.colliding = false; // Track collision state
-        // 安全地克隆颜色和发光属性
-        try {
-          if (mesh.material && mesh.material.color && typeof mesh.material.color.clone === 'function') {
-            mesh.userData.originalColor = mesh.material.color.clone();
-          } else {
-            mesh.userData.originalColor = new THREE.Color(0xffffff);
-          }
-          
-          if (mesh.material && mesh.material.emissive && typeof mesh.material.emissive.clone === 'function') {
-            mesh.userData.originalEmissive = mesh.material.emissive.clone();
-          } else {
-            mesh.userData.originalEmissive = new THREE.Color(0x000000);
-          }
-        } catch (err) {
-          console.error('Error cloning material colors:', err);
-          mesh.userData.originalColor = new THREE.Color(0xffffff);
-          mesh.userData.originalEmissive = new THREE.Color(0x000000);
-        }
+        // 极简物理属性
+        mesh.userData.velocity = new THREE.Vector3(0, 0, 0);
+        mesh.userData.mass = 5; // 固定质量
+        mesh.userData.restitution = 0.5; // 固定弹性系数
+        mesh.userData.colliding = false;
+        mesh.userData.originalColor = new THREE.Color(0x0088ff);
+        mesh.userData.originalEmissive = new THREE.Color(0x000000);
         
-        // Create a bounding sphere for collision detection
-        // Use the geometry's bounding sphere and adjust by scale
+        // 简化包围球创建
         geometry.computeBoundingSphere();
-        const radius = geometry.boundingSphere.radius * scale;
-        // Ensure mesh.position exists and is valid before cloning
-        try {
-          if (mesh.position && typeof mesh.position.clone === 'function') {
-            mesh.userData.boundingSphere = new THREE.Sphere(
-              mesh.position.clone(),
-              radius
-            );
-          } else {
-            // Fallback to origin if position is undefined or clone is not available
-            mesh.userData.boundingSphere = new THREE.Sphere(
-              new THREE.Vector3(0, 0, 0),
-              radius
-            );
-          }
-        } catch (err) {
-          console.error('Error creating bounding sphere:', err);
-          // Fallback to origin if any error occurs
-          mesh.userData.boundingSphere = new THREE.Sphere(
-            new THREE.Vector3(0, 0, 0),
-            radius
-          );
-        }
+        mesh.userData.boundingSphere = new THREE.Sphere(
+          mesh.position.clone(),
+          geometry.boundingSphere.radius * scale
+        );
         
-        // Add to scene and array
+        // 添加到场景和数组
         scene.add(mesh);
         geometries.push(mesh);
       }
@@ -423,78 +703,62 @@ export default function useGeometryScene() {
     }
   };
   
-  // Check for collisions between geometries
+  // 极度简化的碰撞检测函数 - 最大化性能
   const checkCollisions = () => {
-    if (!geometries || geometries.length === 0) return;
+    // 每10帧检测一次碰撞，大幅减少计算频率
+    if (frameCount % 10 !== 0 || !geometries || geometries.length === 0) return;
     
     try {
-      // Reset collision states
-      geometries.forEach(mesh => {
-        if (mesh.userData.colliding) {
-          mesh.userData.colliding = false;
-          if (mesh.material.emissive) {
-            mesh.material.emissive.copy(mesh.userData.originalEmissive);
-            mesh.material.needsUpdate = true;
-          }
-        }
-      });
+      // 只检查相邻的几何体，完全避免O(n²)复杂度
+      // 最多检查4对几何体
+      const maxPairs = Math.min(4, Math.floor(geometries.length / 2));
       
-      // Check each pair of geometries for collisions
-      for (let i = 0; i < geometries.length; i++) {
-        const meshA = geometries[i];
-        if (!meshA || !meshA.userData || !meshA.userData.boundingSphere || !meshA.position) continue;
+      for (let i = 0; i < maxPairs; i++) {
+        // 选择相邻的两个几何体
+        const index1 = i * 2;
+        const index2 = i * 2 + 1;
         
-        // Update bounding sphere position - safely
-        try {
-          if (meshA.userData.boundingSphere.center && 
-              typeof meshA.userData.boundingSphere.center.copy === 'function' && 
-              meshA.position) {
-            meshA.userData.boundingSphere.center.copy(meshA.position);
-          }
-        } catch (err) {
-          console.error('Error updating meshA bounding sphere position:', err);
+        if (index2 >= geometries.length) break;
+        
+        const meshA = geometries[index1];
+        const meshB = geometries[index2];
+        
+        if (!meshA || !meshB || !meshA.userData || !meshB.userData) continue;
+        
+        // 重置碰撞状态
+        meshA.userData.colliding = false;
+        meshB.userData.colliding = false;
+        
+        // 更新包围球位置
+        if (meshA.userData.boundingSphere && meshA.position) {
+          meshA.userData.boundingSphere.center.copy(meshA.position);
         }
         
-        for (let j = i + 1; j < geometries.length; j++) {
-          const meshB = geometries[j];
-          if (!meshB || !meshB.userData || !meshB.userData.boundingSphere || !meshB.position) continue;
+        if (meshB.userData.boundingSphere && meshB.position) {
+          meshB.userData.boundingSphere.center.copy(meshB.position);
+        }
+        
+        // 快速距离检查
+        const distance = meshA.position.distanceTo(meshB.position);
+        const sumRadii = meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius;
+        
+        if (distance < sumRadii) {
+          // 碰撞处理 - 极简化
+          meshA.userData.colliding = true;
+          meshB.userData.colliding = true;
           
-          // Update bounding sphere position - safely
-          try {
-            if (meshB.userData.boundingSphere.center && 
-                typeof meshB.userData.boundingSphere.center.copy === 'function' && 
-                meshB.position) {
-              meshB.userData.boundingSphere.center.copy(meshB.position);
-            }
-          } catch (err) {
-            console.error('Error updating meshB bounding sphere position:', err);
+          // 简单地反转Y轴速度
+          if (meshA.userData.velocity) {
+            meshA.userData.velocity.y *= -0.5;
           }
           
-          // Check for sphere-sphere intersection
-          const distance = meshA.position.distanceTo(meshB.position);
-          const sumRadii = meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius;
-          
-          if (distance < sumRadii) {
-            // Collision detected!
-            handleCollision(meshA, meshB);
-            
-            // Visual feedback for collision
-            if (meshA.material.emissive) {
-              meshA.material.emissive.set(0xff0000);
-              meshA.material.needsUpdate = true;
-            }
-            if (meshB.material.emissive) {
-              meshB.material.emissive.set(0xff0000);
-              meshB.material.needsUpdate = true;
-            }
-            
-            meshA.userData.colliding = true;
-            meshB.userData.colliding = true;
+          if (meshB.userData.velocity) {
+            meshB.userData.velocity.y *= -0.5;
           }
         }
       }
     } catch (error) {
-      console.error('Error checking collisions:', error);
+      console.error('Error checking collisions');
     }
   };
   
@@ -578,54 +842,49 @@ export default function useGeometryScene() {
     }
   };
   
-  // Create a circular mouse indicator
+  // 极度简化的鼠标指示器
   const createMouseIndicator = () => {
     if (!scene) return;
     
     try {
-      // Create a ring geometry for the mouse indicator
-      const ringGeometry = new THREE.RingGeometry(1.5, 2, 32);
+      // 创建极简环形几何体，减少分段数
+      const ringGeometry = new THREE.RingGeometry(1.5, 2, 16);
       const ringMaterial = new THREE.MeshBasicMaterial({
         color: 0x00ffff,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide, // 只渲染正面
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.6,
         depthTest: false
       });
       
-      // Create inner circle
-      const circleGeometry = new THREE.CircleGeometry(0.8, 32);
+      // 创建极简内圆，减少分段数
+      const circleGeometry = new THREE.CircleGeometry(0.8, 8);
       const circleMaterial = new THREE.MeshBasicMaterial({
         color: 0xffffff,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide, // 只渲染正面
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.4,
         depthTest: false
       });
       
-      // Create meshes
+      // 创建网格
       const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-      const circle = new THREE.Mesh(circleGeometry, circleMaterial);
       
-      // Create a group to hold both parts
+      // 创建组
       mouseIndicator = new THREE.Group();
       mouseIndicator.add(ring);
-      mouseIndicator.add(circle);
       
-      // Position in front of the camera
+      // 固定位置
       mouseIndicator.position.z = -10;
       
-      // Add to scene
-      scene.add(mouseIndicator);
-      
-      // Make it follow the camera
+      // 添加到相机
       camera.add(mouseIndicator);
     } catch (error) {
-      console.error('Error creating mouse indicator:', error);
+      console.error('Mouse indicator error');
     }
   };
   
-  // Handle mouse movement
+  // 极度简化的鼠标移动处理
   const onMouseMove = (event) => {
     if (!renderer || !renderer.domElement || !renderer.domElement.parentElement) {
       return;
@@ -637,157 +896,136 @@ export default function useGeometryScene() {
       
       const containerRect = container.getBoundingClientRect();
       
-      // Check if mouse is within container bounds
+      // 检查鼠标是否在容器范围内
       if (
         event.clientX >= containerRect.left && 
         event.clientX <= containerRect.right && 
         event.clientY >= containerRect.top && 
         event.clientY <= containerRect.bottom
       ) {
-        // Calculate mouse position relative to container
-        mouseX = (event.clientX - containerRect.left - windowHalfX) * 0.05;
-        mouseY = (event.clientY - containerRect.top - windowHalfY) * 0.05;
-        
-        // Update mouse position for raycaster (normalized device coordinates)
+        // 更新鼠标位置（简化计算）
         mouseScreenPosition.x = ((event.clientX - containerRect.left) / containerRect.width) * 2 - 1;
         mouseScreenPosition.y = -((event.clientY - containerRect.top) / containerRect.height) * 2 + 1;
         
-        // Update raycaster
-        raycaster.setFromCamera(mouseScreenPosition, camera);
-        
-        // Check for intersections with objects
-        if (!isDragging && geometries.length > 0) {
-          const intersects = raycaster.intersectObjects(geometries);
+        // 每3帧才更新射线投射器和交互检测，大幅减少计算
+        if (frameCount % 3 === 0) {
+          // 更新射线投射器
+          raycaster.setFromCamera(mouseScreenPosition, camera);
           
-          // Reset previously intersected object
-          if (intersectedObject && (!intersects.length || intersects[0].object !== intersectedObject)) {
-            if (intersectedObject.material.emissive) {
-              intersectedObject.material.emissive.copy(intersectedObject.userData.originalEmissive);
-              intersectedObject.material.needsUpdate = true;
-            }
-            // Change cursor back to default
-            renderer.domElement.style.cursor = 'default';
+          // 只在非拖拽状态下检查交互
+          if (!isDragging && geometries.length > 0) {
+            // 限制检测的几何体数量
+            const objectsToCheck = geometries.slice(0, Math.min(geometries.length, 10));
+            const intersects = raycaster.intersectObjects(objectsToCheck);
             
-            // Update mouse indicator color
-            if (mouseIndicator) {
-              mouseIndicator.children[0].material.color.set(0x00ffff);
-            }
-          }
-          
-          // Handle new intersection
-          if (intersects.length > 0) {
-            intersectedObject = intersects[0].object;
-            
-            // Highlight the object
-            if (intersectedObject.material.emissive) {
-              intersectedObject.material.emissive.set(0x00ffff);
-              intersectedObject.material.needsUpdate = true;
+            // 重置之前的交互对象
+            if (intersectedObject && (!intersects.length || intersects[0].object !== intersectedObject)) {
+              // 简化高亮处理
+              renderer.domElement.style.cursor = 'default';
+              
+              // 更新鼠标指示器颜色
+              if (mouseIndicator) {
+                mouseIndicator.children[0].material.color.set(0x00ffff);
+              }
             }
             
-            // Change cursor to indicate draggable
-            renderer.domElement.style.cursor = 'grab';
-            
-            // Update mouse indicator color
-            if (mouseIndicator) {
-              mouseIndicator.children[0].material.color.set(0xff00ff);
+            // 处理新的交互
+            if (intersects.length > 0) {
+              intersectedObject = intersects[0].object;
+              
+              // 简化高亮处理
+              renderer.domElement.style.cursor = 'grab';
+              
+              // 更新鼠标指示器颜色
+              if (mouseIndicator) {
+                mouseIndicator.children[0].material.color.set(0xff00ff);
+              }
+            } else {
+              intersectedObject = null;
             }
-          } else {
-            intersectedObject = null;
           }
         }
         
-        // Update mouse indicator position during drag
+        // 处理拖拽
         if (isDragging && selectedObject) {
-          // Update the drag plane to match the camera direction
+          // 更新拖拽平面
           dragPlane.setFromNormalAndCoplanarPoint(
             camera.getWorldDirection(dragPlane.normal),
             selectedObject.position
           );
           
-          // Cast a ray to find where on the plane the mouse is pointing
+          // 投射射线找到平面上的点
           const intersects = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
           
           if (intersects) {
-            // Move the object, accounting for the initial offset
+            // 移动对象
             selectedObject.position.copy(intersects).sub(dragOffset);
-            
-            // Update the object's velocity to zero during dragging
-            selectedObject.userData.velocity.set(0, 0, 0);
           }
         }
       }
     } catch (error) {
-      console.error('Error handling mouse movement:', error);
+      console.error('Mouse error');
     }
   };
   
-  // Handle mouse down event
+  // 极度简化的鼠标按下处理
   const onMouseDown = (event) => {
-    if (!renderer || !camera || event.button !== 0) return; // Only left mouse button
+    if (!renderer || !camera || event.button !== 0) return; // 只处理左键
     
     try {
-      // If we're hovering over an object, select it for dragging
+      // 如果有交互对象，选择它进行拖拽
       if (intersectedObject) {
         selectedObject = intersectedObject;
         isDragging = true;
         
-        // Change cursor to grabbing
+        // 更改光标
         renderer.domElement.style.cursor = 'grabbing';
         
-        // Disable orbit controls during drag
-        controls.enabled = false;
+        // 禁用轨道控制器
+        if (controls) controls.enabled = false;
         
-        // Store the initial position
+        // 存储初始位置
         dragStartPosition.copy(selectedObject.position);
         
-        // Create a drag plane perpendicular to the camera
+        // 创建拖拽平面
         dragPlane.setFromNormalAndCoplanarPoint(
           camera.getWorldDirection(dragPlane.normal),
           selectedObject.position
         );
         
-        // Calculate the offset between the object position and the mouse position on the plane
+        // 计算偏移量
         const intersects = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
         if (intersects) {
           dragOffset.copy(intersects).sub(selectedObject.position);
         }
         
-        // Update mouse indicator
-        if (mouseIndicator) {
+        // 更新鼠标指示器（简化）
+        if (mouseIndicator && mouseIndicator.children[0]) {
           mouseIndicator.children[0].material.color.set(0xff0000);
-          mouseIndicator.scale.set(1.2, 1.2, 1.2);
         }
       }
     } catch (error) {
-      console.error('Error handling mouse down:', error);
+      console.error('Mouse down error');
     }
   };
   
-  // Handle mouse up event
+  // 极度简化的鼠标释放处理
   const onMouseUp = (event) => {
-    if (event.button !== 0) return; // Only left mouse button
+    if (event.button !== 0) return; // 只处理左键
     
     try {
       if (isDragging && selectedObject) {
-        // Apply a small random velocity when releasing
-        selectedObject.userData.velocity.set(
-          (Math.random() - 0.5) * 0.2,
-          (Math.random() - 0.5) * 0.2,
-          (Math.random() - 0.5) * 0.2
-        );
-        
-        // Reset dragging state
+        // 重置拖拽状态
         isDragging = false;
         
-        // Change cursor back based on whether we're still hovering
+        // 更改光标
         renderer.domElement.style.cursor = intersectedObject ? 'grab' : 'default';
         
-        // Re-enable orbit controls
-        controls.enabled = true;
+        // 重新启用轨道控制器
+        if (controls) controls.enabled = true;
         
-        // Reset mouse indicator
-        if (mouseIndicator) {
-          mouseIndicator.scale.set(1, 1, 1);
+        // 重置鼠标指示器（简化）
+        if (mouseIndicator && mouseIndicator.children[0]) {
           mouseIndicator.children[0].material.color.set(
             intersectedObject ? 0xff00ff : 0x00ffff
           );
@@ -796,26 +1034,25 @@ export default function useGeometryScene() {
       
       selectedObject = null;
     } catch (error) {
-      console.error('Error handling mouse up:', error);
+      console.error('Mouse up error');
     }
   };
   
-  // Handle click event
+  // 极度简化的点击事件处理
   const onClick = (event) => {
     if (!intersectedObject || isDragging) return;
     
     try {
-      // Give the clicked object a boost upward
-      intersectedObject.userData.velocity.y += 0.5;
-      
-      // Add some random rotation
-      intersectedObject.userData.rotationSpeed = {
-        x: (Math.random() - 0.5) * 0.03,
-        y: (Math.random() - 0.5) * 0.03,
-        z: (Math.random() - 0.5) * 0.03
-      };
+      // 只添加固定的Y轴旋转，完全移除物理效果
+      if (intersectedObject.userData) {
+        intersectedObject.userData.rotationSpeed = {
+          x: 0,
+          y: 0.02,
+          z: 0
+        };
+      }
     } catch (error) {
-      console.error('Error handling click:', error);
+      console.error('Click error');
     }
   };
   
@@ -832,34 +1069,203 @@ export default function useGeometryScene() {
     // This is handled by our custom onMouseUp
   };
   
-  // Handle window resize
+  // 极度简化的窗口调整大小处理
   const onWindowResize = () => {
     if (!renderer || !renderer.domElement || !renderer.domElement.parentElement) {
       return;
     }
     
     try {
-      // Get container dimensions
+      // 获取容器尺寸
       const container = renderer.domElement.parentElement;
       const containerRect = container.getBoundingClientRect();
       const containerWidth = containerRect.width;
       const containerHeight = containerRect.height;
       
-      windowHalfX = containerWidth / 2;
-      windowHalfY = containerHeight / 2;
-      
+      // 更新相机
       if (camera) {
         camera.aspect = containerWidth / containerHeight;
         camera.updateProjectionMatrix();
       }
       
+      // 更新渲染器尺寸
       renderer.setSize(containerWidth, containerHeight);
+      
+      // 更新后处理效果的大小（如果存在）
+      if (composer) {
+        composer.setSize(containerWidth, containerHeight);
+      }
     } catch (error) {
-      console.error('Error handling window resize:', error);
+      console.error('Resize error');
     }
   };
   
-  // Animation loop
+  // 极度简化的科技环境创建
+  const createTechEnvironment2 = () => {
+    if (!scene) return;
+    
+    try {
+      // 添加极简网格地面 - 减少网格线数量
+      gridHelper = new THREE.GridHelper(200, 20, 0x00ffff, 0x0088ff);
+      gridHelper.position.y = 0.1;
+      gridHelper.material.opacity = 0.2;
+      gridHelper.material.transparent = true;
+      scene.add(gridHelper);
+      
+      // 完全移除坐标轴辅助
+      
+      // 设置固定背景色，完全跳过HDR环境贴图加载
+      scene.background = new THREE.Color(0x000811); // 深蓝黑色背景
+      
+      // 创建简单的立方体环境贴图代替HDR
+      const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(128); // 极低分辨率
+      cubeRenderTarget.texture.type = THREE.HalfFloatType; // 使用半精度浮点数
+      scene.environment = cubeRenderTarget.texture;
+    } catch (error) {
+      console.error('Environment error');
+    }
+  };
+  
+  // 创建粒子系统2
+  const createParticleSystem2 = () => {
+    if (!scene) return;
+    
+    try {
+      // 创建粒子几何体
+      const particlesGeometry = new THREE.BufferGeometry();
+      const particleCount = 2000;
+      
+      const positions = new Float32Array(particleCount * 3);
+      const colors = new Float32Array(particleCount * 3);
+      const sizes = new Float32Array(particleCount);
+      
+      const color = new THREE.Color();
+      
+      for (let i = 0; i < particleCount; i++) {
+        // 位置 - 在较大范围内随机分布
+        positions[i * 3] = (Math.random() - 0.5) * 200;
+        positions[i * 3 + 1] = Math.random() * 100;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+        
+        // 颜色 - 使用科技感颜色
+        const colorChoice = Math.random();
+        if (colorChoice < 0.3) {
+          color.setHSL(0.6, 1, 0.5); // 蓝色
+        } else if (colorChoice < 0.6) {
+          color.setHSL(0.5, 1, 0.5); // 青色
+        } else if (colorChoice < 0.9) {
+          color.setHSL(0.8, 1, 0.5); // 紫色
+        } else {
+          color.setHSL(0.1, 1, 0.5); // 绿色
+        }
+        
+        colors[i * 3] = color.r;
+        colors[i * 3 + 1] = color.g;
+        colors[i * 3 + 2] = color.b;
+        
+        // 大小 - 随机但较小
+        sizes[i] = Math.random() * 2;
+      }
+      
+      particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      particlesGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      particlesGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+      
+      // 创建粒子材质
+      const particlesMaterial = new THREE.PointsMaterial({
+        size: 0.5,
+        sizeAttenuation: true,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.6,
+        vertexColors: true,
+        blending: THREE.AdditiveBlending
+      });
+      
+      // 创建粒子系统
+      particleSystem = new THREE.Points(particlesGeometry, particlesMaterial);
+      scene.add(particleSystem);
+    } catch (error) {
+      console.error('Error creating particle system:', error);
+    }
+  };
+  
+  // 创建全息投影效果2
+  const createHologramEffect2 = () => {
+    if (!scene) return;
+    
+    try {
+      hologramGroup = new THREE.Group();
+      
+      // 创建多个环形
+      for (let i = 0; i < 5; i++) {
+        const radius = 15 + i * 3;
+        const hologramRing = new THREE.Mesh(
+          new THREE.RingGeometry(radius, radius + 0.2, 64),
+          new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide
+          })
+        );
+        hologramRing.rotation.x = Math.PI / 2;
+        hologramRing.position.y = 0.2;
+        hologramGroup.add(hologramRing);
+      }
+      
+      // 创建垂直扫描线
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2;
+        const line = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.2, 30),
+          new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0.5,
+            side: THREE.DoubleSide
+          })
+        );
+        line.position.set(
+          Math.cos(angle) * 15,
+          15,
+          Math.sin(angle) * 15
+        );
+        line.rotation.y = angle;
+        hologramGroup.add(line);
+      }
+      
+      hologramGroup.position.set(0, 0, 0);
+      scene.add(hologramGroup);
+    } catch (error) {
+      console.error('Error creating hologram effect:', error);
+    }
+  };
+  
+  // 创建扫描线效果2
+  const createScanLine2 = () => {
+    if (!scene) return;
+    
+    try {
+      // 创建扫描线平面
+      scanLine = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 0.5),
+        new THREE.MeshBasicMaterial({
+          color: 0x00ffff,
+          transparent: true,
+          opacity: 0.3,
+          side: THREE.DoubleSide
+        })
+      );
+      scanLine.rotation.x = Math.PI / 2;
+      scanLine.position.y = 0.5;
+      scene.add(scanLine);
+    } catch (error) {
+      console.error('Error creating scan line:', error);
+    }
+  };
+  
+  // 极度优化的主动画循环 - 最大化性能
   const animate = () => {
     if (!scene || !camera || !renderer || !clock || !controls) {
       return;
@@ -870,265 +1276,144 @@ export default function useGeometryScene() {
       
       const delta = clock.getDelta();
       const elapsedTime = clock.getElapsedTime();
+      const frameCount = Math.floor(elapsedTime * 60); // 用于帧计数的简单方法
       
-      // Update controls
-      controls.update();
-      
-      // Update mouse indicator animation - safely
-      try {
-        if (mouseIndicator && mouseIndicator.children && mouseIndicator.children.length > 0) {
-          // Subtle pulsing animation
-          const pulse = 1 + Math.sin(elapsedTime * 5) * 0.05;
-          if (mouseIndicator.children[0].scale && typeof mouseIndicator.children[0].scale.set === 'function') {
-            mouseIndicator.children[0].scale.set(pulse, pulse, 1);
-          }
-          
-          // Rotate the ring slightly
-          if (mouseIndicator.children[0].rotation && typeof mouseIndicator.children[0].rotation.z === 'number') {
-            mouseIndicator.children[0].rotation.z += delta * 0.5;
-          }
-        }
-      } catch (err) {
-        console.error('Error updating mouse indicator animation:', err);
+      // 更新控制器 - 必须保留但降低更新频率
+      if (frameCount % 2 === 0) { // 每2帧更新一次控制器
+        controls.update();
       }
       
-      // Skip collision checks for objects being dragged - safely
-      try {
-        if (!isDragging) {
+      // 极度简化灯光动画 - 每20帧更新一次
+      if (frameCount % 20 === 0 && scene.userData && scene.userData.animateLights && typeof scene.userData.animateLights === 'function') {
+        scene.userData.animateLights(delta * 20); // 补偿跳过的帧
+      }
+      
+      // 完全移除科技感材质更新
+      
+      // 极度简化粒子系统 - 每30帧更新一次
+      if (frameCount % 30 === 0 && particleSystem) {
+        particleSystem.rotation.y += delta * 30 * 0.01; // 大幅减慢旋转速度并补偿跳过的帧
+      }
+      
+      // 极度简化全息投影效果 - 每30帧更新一次
+      if (frameCount % 30 === 0 && hologramGroup) {
+        hologramGroup.rotation.y += delta * 30 * 0.05; // 大幅减慢旋转速度并补偿跳过的帧
+      }
+      
+      // 极度简化扫描线 - 每20帧更新一次
+      if (frameCount % 20 === 0 && scanLine) {
+        // 移动扫描线，但大幅减慢速度
+        scanLinePosition += delta * 20 * 5; // 补偿跳过的帧但大幅减少速度
+        if (scanLinePosition > 200) scanLinePosition = -100;
+        scanLine.position.z = scanLinePosition;
+      }
+      
+      // 完全禁用故障效果
+      if (glitchPass) {
+        glitchPass.enabled = false;
+      }
+      
+      // 极度简化鼠标指示器 - 每16帧更新一次
+      if (frameCount % 16 === 0 && mouseIndicator && mouseIndicator.children && mouseIndicator.children.length > 0) {
+        try {
+          // 固定大小
+          if (mouseIndicator.children[0].scale) {
+            mouseIndicator.children[0].scale.set(1, 1, 1);
+          }
+          
+          // 极度减少旋转速度
+          if (mouseIndicator.children[0].rotation) {
+            mouseIndicator.children[0].rotation.z += delta * 16 * 0.05; // 补偿跳过的帧但大幅减少速度
+          }
+        } catch (err) {
+          console.error('Mouse error');
+        }
+      }
+      
+      // 极简碰撞检测 - 每10帧检测一次
+      if (!isDragging && frameCount % 10 === 0) { // 大幅降低频率
+        try {
           checkCollisions();
+        } catch (err) {
+          // 简化错误处理
+          console.error('Collision check error');
         }
-      } catch (err) {
-        console.error('Error during collision checks in animation loop:', err);
       }
       
-      // Animate geometries with physics
-      if (geometries && geometries.length > 0) {
-        geometries.forEach((mesh) => {
-          if (!mesh || !mesh.userData || !mesh.userData.velocity || !mesh.position) return;
-          
-          // Apply gravity and velocity - safely
+      // 极度简化的几何体物理 - 每4帧更新一次
+      if (frameCount % 4 === 0 && geometries && geometries.length > 0) {
+        // 只更新一个几何体，轮流更新
+        const index = (Math.floor(frameCount / 4) % geometries.length);
+        const mesh = geometries[index];
+        
+        if (mesh && mesh.userData && mesh.position) {
           try {
-            // Apply gravity
-            if (mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number') {
-              mesh.userData.velocity.y -= 0.01; // Gravity effect
-            }
-            
-            // Apply velocity to position
-            if (mesh.position && mesh.userData.velocity) {
-              if (typeof mesh.position.x === 'number' && typeof mesh.userData.velocity.x === 'number') {
-                mesh.position.x += mesh.userData.velocity.x;
-              }
-              if (typeof mesh.position.y === 'number' && typeof mesh.userData.velocity.y === 'number') {
-                mesh.position.y += mesh.userData.velocity.y;
-              }
-              if (typeof mesh.position.z === 'number' && typeof mesh.userData.velocity.z === 'number') {
-                mesh.position.z += mesh.userData.velocity.z;
-              }
-            }
-            
-            // Apply damping (air resistance)
-            if (mesh.userData.velocity && typeof mesh.userData.velocity.multiplyScalar === 'function') {
-              mesh.userData.velocity.multiplyScalar(0.99);
-            }
-          } catch (err) {
-            console.error('Error updating physics for mesh:', err);
-          }
-          
-          // Rotate each geometry if rotationSpeed exists - safely
-          try {
+            // 只更新旋转 - 完全移除物理模拟
             if (mesh.rotation && mesh.userData.rotationSpeed) {
-              if (typeof mesh.rotation.x === 'number' && typeof mesh.userData.rotationSpeed.x === 'number') {
-                mesh.rotation.x += mesh.userData.rotationSpeed.x;
-              }
-              if (typeof mesh.rotation.y === 'number' && typeof mesh.userData.rotationSpeed.y === 'number') {
-                mesh.rotation.y += mesh.userData.rotationSpeed.y;
-              }
-              if (typeof mesh.rotation.z === 'number' && typeof mesh.userData.rotationSpeed.z === 'number') {
-                mesh.rotation.z += mesh.userData.rotationSpeed.z;
-              }
+              mesh.rotation.y += mesh.userData.rotationSpeed.y * 4; // 补偿跳过的帧
+            }
+            
+            // 如果处于碰撞状态，改变颜色
+            if (mesh.material && mesh.userData.colliding) {
+              // 简单地设置为红色
+              mesh.material.color.set(0xff0000);
+              mesh.userData.colliding = false; // 重置碰撞状态
+            } else if (mesh.material && mesh.userData.originalColor) {
+              // 恢复原始颜色
+              mesh.material.color.copy(mesh.userData.originalColor);
             }
           } catch (err) {
-            console.error('Error updating rotation for mesh:', err);
+            // 极简错误处理
+            console.error('Update error');
           }
-          
-          // Float effect (reduced since we have physics now) - safely
-          try {
-            if (mesh.position && 
-                typeof mesh.position.y === 'number' &&
-                typeof mesh.userData.floatSpeed === 'number' && 
-                typeof mesh.userData.floatHeight === 'number') {
-              const floatEffect = Math.sin(elapsedTime * mesh.userData.floatSpeed) * 
-                               (mesh.userData.floatHeight * 0.3);
-              mesh.position.y += floatEffect * delta * 10; // Apply as delta-based adjustment
-            }
-          } catch (err) {
-            console.error('Error applying float effect for mesh:', err);
-          }
-          
-          // Boundary checks - bounce off invisible walls
-          if (mesh.position) {
-            const bounceRestitution = 0.7; // How bouncy the walls are
-            
-            // X boundaries (left/right walls) - safely
-            try {
-              if (mesh.position && typeof mesh.position.x === 'number' && 
-                  mesh.userData.velocity && typeof mesh.userData.velocity.x === 'number') {
-                if (Math.abs(mesh.position.x) > 120) {
-                  mesh.position.x = Math.sign(mesh.position.x) * 120;
-                  mesh.userData.velocity.x *= -bounceRestitution;
-                }
-              }
-            } catch (err) {
-              console.error('Error handling X boundaries for mesh:', err);
-            }
-            
-            // Z boundaries (front/back walls) - safely
-            try {
-              if (mesh.position && typeof mesh.position.z === 'number' && 
-                  mesh.userData.velocity && typeof mesh.userData.velocity.z === 'number') {
-                if (Math.abs(mesh.position.z) > 120) {
-                  mesh.position.z = Math.sign(mesh.position.z) * 120;
-                  mesh.userData.velocity.z *= -bounceRestitution;
-                }
-              }
-            } catch (err) {
-              console.error('Error handling Z boundaries for mesh:', err);
-            }
-            
-            // Y boundaries (floor and ceiling) - safely
-            try {
-              if (mesh.position && typeof mesh.position.y === 'number') {
-                if (mesh.position.y < 2) { // Floor collision
-                  mesh.position.y = 2;
-                  if (mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number') {
-                    mesh.userData.velocity.y *= -bounceRestitution;
-                    
-                    // Add some friction when hitting the floor
-                    if (typeof mesh.userData.velocity.x === 'number') {
-                      mesh.userData.velocity.x *= 0.95;
-                    }
-                    if (typeof mesh.userData.velocity.z === 'number') {
-                      mesh.userData.velocity.z *= 0.95;
-                    }
-                  }
-                } else if (mesh.position.y > 100) { // Ceiling collision
-                  mesh.position.y = 100;
-                  if (mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number') {
-                    mesh.userData.velocity.y *= -bounceRestitution;
-                  }
-                } else if (mesh.position.y < -20) { // If object falls too far below, reset it
-                  // Reset position to a random height
-                  if (typeof mesh.position.set === 'function') {
-                    mesh.position.set(
-                      (Math.random() - 0.5) * 10,  // x
-                      10 + Math.random() * 5,     // y - start above the scene
-                      (Math.random() - 0.5) * 10   // z
-                    );
-                  }
-                  
-                  // Reset velocity
-                  if (mesh.userData.velocity && typeof mesh.userData.velocity.set === 'function') {
-                    mesh.userData.velocity.set(0, 0, 0);
-                  }
-                }
-              }
-            } catch (err) {
-              console.error('Error handling Y boundaries for mesh:', err);
-            }
-            
-            // Visual effect for floor collision - safely
-            try {
-              if (mesh.position && typeof mesh.position.y === 'number' && 
-                  mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number' &&
-                  mesh.position.y <= 2.1 && Math.abs(mesh.userData.velocity.y) < 0.02) {
-                // Object is resting on the floor
-                if (mesh.material && mesh.material.emissive && 
-                    typeof mesh.material.emissive.copy === 'function' && 
-                    !mesh.userData.colliding) {
-                  // Subtle glow effect for resting objects
-                  const restingGlow = new THREE.Color(0x111111);
-                  mesh.material.emissive.copy(restingGlow);
-                  mesh.material.needsUpdate = true;
-                }
-              }
-            } catch (err) {
-              console.error('Error applying floor resting effect for mesh:', err);
-            }
-          }
-        });
+        }
       }
       
-      // Render scene
-      renderer.render(scene, camera);
+      // 极简地板效果 - 完全移除地板发光效果
+      
+      // 极简环境贴图更新 - 每30帧更新一次
+      if (frameCount % 30 === 0 && geometries && geometries.length > 0 && scene && scene.environment) {
+        // 只更新一部分几何体的环境贴图
+        const updateCount = Math.min(geometries.length, 3); // 每次最多更新3个几何体
+        const startIdx = frameCount % (geometries.length - updateCount + 1); // 循环更新不同部分
+        
+        for (let i = startIdx; i < startIdx + updateCount; i++) {
+          const mesh = geometries[i];
+          if (mesh && mesh.material) {
+            mesh.material.envMap = scene.environment;
+            mesh.material.envMapIntensity = 0.8; // 进一步降低环境贴图强度
+            mesh.material.needsUpdate = true;
+          }
+        }
+      }
+      
+      // 渲染场景 - 必须保留
+      if (composer) {
+        composer.render();
+      } else {
+        renderer.render(scene, camera);
+      }
     } catch (error) {
-      console.error('Error in animation loop:', error);
+      console.error('Animation error');
       cancelAnimationFrame(animationFrameId);
     }
   };
   
-  // Create camera intro animation
+  // 极度简化的相机介绍 - 完全移除动画，直接设置位置
   const startCameraIntroAnimation = () => {
     if (!camera) return;
     
     try {
-      // Temporarily disable orbit controls during the intro animation
+      // 直接设置相机到最终位置
+      camera.position.set(0, 30, 60);
+      camera.lookAt(0, 0, 0);
+      
+      // 确保控制器被启用
       if (controls) {
-        controls.enabled = false;
+        controls.enabled = true;
       }
-      
-      // Define the target position (final camera position)
-      const targetPosition = { x: 0, y: 30, z: 70 };
-      
-      // Create a timeline for the camera animation
-      const timeline = gsap.timeline({
-        onComplete: () => {
-          // Re-enable orbit controls after animation completes
-          if (controls) {
-            controls.enabled = true;
-          }
-        }
-      });
-      
-      // First movement: Swoop in from a distance
-      timeline.to(camera.position, {
-        x: 50,
-        y: 50,
-        z: 100,
-        duration: 2.5,
-        ease: "power2.inOut",
-      });
-      
-      // Second movement: Circle around to view from another angle
-      timeline.to(camera.position, {
-        x: -40,
-        y: 40,
-        z: 80,
-        duration: 2,
-        ease: "power1.inOut",
-        onUpdate: () => {
-          camera.lookAt(0, 0, 0);
-        }
-      });
-      
-      // Final movement: Settle into the final position
-      timeline.to(camera.position, {
-        x: targetPosition.x,
-        y: targetPosition.y,
-        z: targetPosition.z,
-        duration: 1.5,
-        ease: "power2.out",
-        onUpdate: () => {
-          camera.lookAt(0, 0, 0);
-        }
-      });
     } catch (error) {
-      console.error('Error in camera intro animation:', error);
-      // Ensure camera is at the correct position even if animation fails
-      if (camera) {
-        camera.position.set(0, 30, 70);
-        camera.lookAt(0, 0, 0);
-      }
-      // Re-enable controls
+      console.error('Camera error');
       if (controls) {
         controls.enabled = true;
       }
@@ -1157,6 +1442,53 @@ export default function useGeometryScene() {
         animationFrameId = null;
       }
       
+      // 清理科技感材质
+      if (techMaterials && techMaterials.length > 0) {
+        techMaterials.forEach(material => {
+          if (material) material.dispose();
+        });
+        techMaterials = [];
+      }
+      
+      // 清理粒子系统
+      if (particleSystem) {
+        if (particleSystem.geometry) particleSystem.geometry.dispose();
+        if (particleSystem.material) particleSystem.material.dispose();
+        if (scene) scene.remove(particleSystem);
+        particleSystem = null;
+      }
+      
+      // 清理网格地面
+      if (gridHelper) {
+        if (scene) scene.remove(gridHelper);
+        gridHelper = null;
+      }
+      
+      // 清理全息投影效果
+      if (hologramGroup) {
+        if (hologramGroup.children && hologramGroup.children.length > 0) {
+          hologramGroup.children.forEach(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+          });
+        }
+        if (scene) scene.remove(hologramGroup);
+        hologramGroup = null;
+      }
+      
+      // 清理扫描线
+      if (scanLine) {
+        if (scanLine.geometry) scanLine.geometry.dispose();
+        if (scanLine.material) scanLine.material.dispose();
+        if (scene) scene.remove(scanLine);
+        scanLine = null;
+      }
+      
+      // 清理后处理效果
+      if (filmPass) filmPass = null;
+      if (glitchPass) glitchPass = null;
+      if (halftonePass) halftonePass = null;
+      
       // Dispose of Three.js resources
       if (plane && plane.geometry) {
         plane.geometry.dispose();
@@ -1164,9 +1496,41 @@ export default function useGeometryScene() {
           if (Array.isArray(plane.material)) {
             plane.material.forEach(material => material.dispose());
           } else {
+            // 特别处理Reflector材质
+            if (plane instanceof Reflector && plane.material.uniforms) {
+              // 清理Reflector特有的纹理资源
+              if (plane.material.uniforms.tDiffuse && plane.material.uniforms.tDiffuse.value) {
+                plane.material.uniforms.tDiffuse.value.dispose();
+              }
+              // 清理其他可能的纹理资源
+              Object.values(plane.material.uniforms).forEach(uniform => {
+                if (uniform.value && uniform.value.isTexture) {
+                  uniform.value.dispose();
+                }
+              });
+            }
             plane.material.dispose();
           }
         }
+        
+        // 清理Reflector相关资源
+        if (plane instanceof Reflector) {
+          // Reflector的特殊清理已在上面处理
+        } else if (plane.userData && plane.userData.updateReflection) {
+          // 兼容旧代码：清理CubeCamera（如果存在）
+          scene.children.forEach(child => {
+            if (child instanceof THREE.CubeCamera) {
+              if (child.renderTarget) {
+                child.renderTarget.dispose();
+              }
+              scene.remove(child);
+            }
+          });
+          
+          // 移除引用
+          plane.userData.updateReflection = null;
+        }
+        
         if (scene) scene.remove(plane);
         plane = null;
       }

@@ -29,5 +29,8 @@ export default defineNuxtConfig({
   modules: [],
   
   // Auto-import components
-  components: true
+  components: true,
+  
+  // 禁用SSR，使用客户端渲染以解决Three.js兼容性问题
+  ssr: false
 })
