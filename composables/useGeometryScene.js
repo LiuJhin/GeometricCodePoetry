@@ -721,13 +721,13 @@ export default function useGeometryScene() {
 
       // 保留数据文本效果 - 直接在这里创建，不调用单独的函数
       // 创建虚拟数据显示 - 减少数量
-      const dataGeometry = new THREE.PlaneGeometry(4, 0.5);
-      const dataMaterial = new THREE.MeshBasicMaterial({
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.5,
-        side: THREE.FrontSide,
-      });
+      // const dataGeometry = new THREE.PlaneGeometry(4, 0.5);
+      // const dataMaterial = new THREE.MeshBasicMaterial({
+      //   color: 0x00ffff,
+      //   transparent: true,
+      //   opacity: 0.5,
+      //   side: THREE.FrontSide,
+      // });
 
       // // 只创建4行数据，而不是10行
       // for (let i = 0; i < 4; i++) {
