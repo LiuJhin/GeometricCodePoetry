@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DragControls } from 'three/examples/jsm/controls/DragControls.js';
+import { gsap } from 'gsap';
 
 export default function useGeometryScene() {
   // Three.js variables
@@ -45,7 +46,8 @@ export default function useGeometryScene() {
       const near = 0.1;
       const far = 1000;
       camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
-      camera.position.set(0, 30, 70);
+      // Set initial camera position further away for the intro animation
+      camera.position.set(120, 80, 150);
       camera.lookAt(0, 0, 0);
       
       // Set up renderer
@@ -108,6 +110,9 @@ export default function useGeometryScene() {
       
       // Start animation loop
       animate();
+      
+      // Start camera intro animation
+      startCameraIntroAnimation();
       
       return { scene, camera, renderer };
     } catch (error) {
@@ -880,6 +885,75 @@ export default function useGeometryScene() {
     }
   };
   
+  // Create camera intro animation
+  const startCameraIntroAnimation = () => {
+    if (!camera) return;
+    
+    try {
+      // Temporarily disable orbit controls during the intro animation
+      if (controls) {
+        controls.enabled = false;
+      }
+      
+      // Define the target position (final camera position)
+      const targetPosition = { x: 0, y: 30, z: 70 };
+      
+      // Create a timeline for the camera animation
+      const timeline = gsap.timeline({
+        onComplete: () => {
+          // Re-enable orbit controls after animation completes
+          if (controls) {
+            controls.enabled = true;
+          }
+        }
+      });
+      
+      // First movement: Swoop in from a distance
+      timeline.to(camera.position, {
+        x: 50,
+        y: 50,
+        z: 100,
+        duration: 2.5,
+        ease: "power2.inOut",
+      });
+      
+      // Second movement: Circle around to view from another angle
+      timeline.to(camera.position, {
+        x: -40,
+        y: 40,
+        z: 80,
+        duration: 2,
+        ease: "power1.inOut",
+        onUpdate: () => {
+          camera.lookAt(0, 0, 0);
+        }
+      });
+      
+      // Final movement: Settle into the final position
+      timeline.to(camera.position, {
+        x: targetPosition.x,
+        y: targetPosition.y,
+        z: targetPosition.z,
+        duration: 1.5,
+        ease: "power2.out",
+        onUpdate: () => {
+          camera.lookAt(0, 0, 0);
+        }
+      });
+    } catch (error) {
+      console.error('Error in camera intro animation:', error);
+      // Ensure camera is at the correct position even if animation fails
+      if (camera) {
+        camera.position.set(0, 30, 70);
+        camera.lookAt(0, 0, 0);
+      }
+      // Re-enable controls
+      if (controls) {
+        controls.enabled = true;
+      }
+    }
+  };
+  
   // Clean up resources
   const cleanup = () => {
     try {
@@ -892,6 +966,9 @@ export default function useGeometryScene() {
         renderer.domElement.removeEventListener('mouseup', onMouseUp);
         renderer.domElement.removeEventListener('click', onClick);
       }
+      
+      // Kill any active GSAP animations
+      gsap.killTweensOf(camera.position);
       
       // Stop animation loop
       if (animationFrameId !== null) {
