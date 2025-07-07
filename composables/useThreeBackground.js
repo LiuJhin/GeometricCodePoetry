@@ -194,7 +194,12 @@ export default function useThreeBackground() {
     }
     
     if (renderer && renderer.domElement && renderer.domElement.parentNode) {
-      renderer.domElement.parentNode.removeChild(renderer.domElement);
+      try {
+        renderer.domElement.parentNode.removeChild(renderer.domElement);
+      } catch (e) {
+        console.warn('Error removing renderer DOM element:', e.message);
+        // DOM元素可能已经被移除，继续执行清理
+      }
       renderer.dispose();
     }
   };

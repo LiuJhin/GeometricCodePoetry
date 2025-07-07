@@ -21,13 +21,19 @@
         <section class="hero-section">
           <!-- 3D Background Canvas -->
           <div ref="canvasContainer" class="canvas-container"></div>
-          
+
           <div class="hero-content">
-            <h2 class="hero-title">Exploring the <span class="gradient-text">Future</span> of Web</h2>
-            <p class="hero-subtitle">Front-end developer & creative technologist</p>
+            <h2 class="hero-title">
+              Exploring the <span class="gradient-text">Future</span> of Web
+            </h2>
+            <p class="hero-subtitle">
+              Front-end developer & creative technologist
+            </p>
             <div class="hero-buttons">
               <button class="cta-button">Explore My Work</button>
-              <NuxtLink to="/immersive" class="immersive-button">Experience 3D Demo</NuxtLink>
+              <NuxtLink to="/immersive" class="immersive-button"
+                >Experience 3D Demo</NuxtLink
+              >
             </div>
           </div>
         </section>
@@ -36,7 +42,12 @@
         <section id="about" class="section about-section">
           <h2 class="section-title">About Me</h2>
           <div class="section-content">
-            <p>I'm a front-end developer passionate about creating immersive digital experiences that blend technology and art. With expertise in modern JavaScript frameworks and 3D web technologies, I build websites that push the boundaries of what's possible on the web.</p>
+            <p>
+              I'm a front-end developer passionate about creating immersive
+              digital experiences that blend technology and art. With expertise
+              in modern JavaScript frameworks and 3D web technologies, I build
+              websites that push the boundaries of what's possible on the web.
+            </p>
             <div class="skills">
               <div class="skill-tag">JavaScript</div>
               <div class="skill-tag">Vue.js</div>
@@ -53,20 +64,35 @@
           <div class="articles-grid">
             <div class="article-card">
               <div class="article-date">June 15, 2025</div>
-              <h3 class="article-title">Creating Immersive 3D Experiences with Three.js</h3>
-              <p class="article-excerpt">Learn how to build captivating 3D scenes that respond to user interaction.</p>
+              <h3 class="article-title">
+                Creating Immersive 3D Experiences with Three.js
+              </h3>
+              <p class="article-excerpt">
+                Learn how to build captivating 3D scenes that respond to user
+                interaction.
+              </p>
               <a href="#" class="read-more">Read More</a>
             </div>
             <div class="article-card">
               <div class="article-date">May 28, 2025</div>
-              <h3 class="article-title">Advanced Animation Techniques with GSAP</h3>
-              <p class="article-excerpt">Discover powerful animation strategies to bring your web projects to life.</p>
+              <h3 class="article-title">
+                Advanced Animation Techniques with GSAP
+              </h3>
+              <p class="article-excerpt">
+                Discover powerful animation strategies to bring your web
+                projects to life.
+              </p>
               <a href="#" class="read-more">Read More</a>
             </div>
             <div class="article-card">
               <div class="article-date">April 10, 2025</div>
-              <h3 class="article-title">The Future of Web Design: Trends to Watch</h3>
-              <p class="article-excerpt">Exploring emerging technologies and design patterns shaping tomorrow's web.</p>
+              <h3 class="article-title">
+                The Future of Web Design: Trends to Watch
+              </h3>
+              <p class="article-excerpt">
+                Exploring emerging technologies and design patterns shaping
+                tomorrow's web.
+              </p>
               <a href="#" class="read-more">Read More</a>
             </div>
           </div>
@@ -79,7 +105,10 @@
             <div class="project-card">
               <div class="project-image"></div>
               <h3 class="project-title">Nebula Explorer</h3>
-              <p class="project-description">An interactive 3D visualization of cosmic nebulae using WebGL and particle systems.</p>
+              <p class="project-description">
+                An interactive 3D visualization of cosmic nebulae using WebGL
+                and particle systems.
+              </p>
               <div class="project-tags">
                 <span>Three.js</span>
                 <span>WebGL</span>
@@ -90,7 +119,10 @@
             <div class="project-card">
               <div class="project-image"></div>
               <h3 class="project-title">Waveform Synthesizer</h3>
-              <p class="project-description">A browser-based audio synthesizer with visual waveform representation.</p>
+              <p class="project-description">
+                A browser-based audio synthesizer with visual waveform
+                representation.
+              </p>
               <div class="project-tags">
                 <span>Web Audio API</span>
                 <span>Canvas</span>
@@ -101,7 +133,10 @@
             <div class="project-card">
               <div class="project-image"></div>
               <h3 class="project-title">Digital Garden</h3>
-              <p class="project-description">Procedurally generated botanical forms that grow and evolve based on user interaction.</p>
+              <p class="project-description">
+                Procedurally generated botanical forms that grow and evolve
+                based on user interaction.
+              </p>
               <div class="project-tags">
                 <span>Three.js</span>
                 <span>Procedural Generation</span>
@@ -116,16 +151,26 @@
         <section id="contact" class="section contact-section">
           <h2 class="section-title">Get In Touch</h2>
           <div class="contact-content">
-            <p>Interested in working together or have a question? Feel free to reach out!</p>
+            <p>
+              Interested in working together or have a question? Feel free to
+              reach out!
+            </p>
             <form class="contact-form">
               <div class="form-group">
                 <input type="text" placeholder="Your Name" class="form-input" />
               </div>
               <div class="form-group">
-                <input type="email" placeholder="Your Email" class="form-input" />
+                <input
+                  type="email"
+                  placeholder="Your Email"
+                  class="form-input"
+                />
               </div>
               <div class="form-group">
-                <textarea placeholder="Your Message" class="form-textarea"></textarea>
+                <textarea
+                  placeholder="Your Message"
+                  class="form-textarea"
+                ></textarea>
               </div>
               <button type="submit" class="submit-button">Send Message</button>
             </form>
@@ -147,9 +192,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-import useGeometryScene from '~/composables/useGeometryScene';
-import useGSAPAnimations from '~/composables/useGSAPAnimations';
+import { ref, onMounted, onUnmounted } from "vue";
+import useGeometryScene from "~/composables/useGeometryScene";
+import useGSAPAnimations from "~/composables/useGSAPAnimations";
 
 // Refs
 const canvasContainer = ref(null);
@@ -164,7 +209,7 @@ onMounted(() => {
   if (canvasContainer.value) {
     geometryScene.init(canvasContainer.value);
   }
-  
+
   // Initialize GSAP animations
   gsapAnimations.initAnimations();
 });
@@ -172,7 +217,7 @@ onMounted(() => {
 onUnmounted(() => {
   // Clean up Three.js resources
   geometryScene.cleanup();
-  
+
   // Clean up GSAP animations
   gsapAnimations.cleanup();
 });
@@ -239,7 +284,7 @@ onUnmounted(() => {
 }
 
 .nav-link::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -5px;
   left: 0;
@@ -272,7 +317,7 @@ onUnmounted(() => {
 }
 
 .hero-title {
-  font-size: 4rem;
+  font-size: 7rem;
   font-weight: 800;
   line-height: 1.2;
   margin-bottom: 1.5rem;
@@ -354,7 +399,7 @@ onUnmounted(() => {
 }
 
 .section-title::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -10px;
   left: 0;
@@ -442,7 +487,7 @@ onUnmounted(() => {
 }
 
 .read-more::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -3px;
   left: 0;
@@ -485,13 +530,17 @@ onUnmounted(() => {
 }
 
 .project-image::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(45deg, rgba(0, 255, 255, 0.1), rgba(255, 0, 255, 0.1));
+  background: linear-gradient(
+    45deg,
+    rgba(0, 255, 255, 0.1),
+    rgba(255, 0, 255, 0.1)
+  );
   z-index: 1;
 }
 
@@ -552,7 +601,8 @@ onUnmounted(() => {
   gap: 1.5rem;
 }
 
-.form-input, .form-textarea {
+.form-input,
+.form-textarea {
   width: 100%;
   background-color: rgba(30, 30, 30, 0.5);
   border: 1px solid #333;
@@ -568,7 +618,8 @@ onUnmounted(() => {
   resize: vertical;
 }
 
-.form-input:focus, .form-textarea:focus {
+.form-input:focus,
+.form-textarea:focus {
   outline: none;
   border-color: #00ffff;
   box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
@@ -623,25 +674,26 @@ onUnmounted(() => {
     flex-direction: column;
     padding: 1.5rem 5%;
   }
-  
+
   .navigation ul {
     margin-top: 1rem;
     gap: 1rem;
   }
-  
+
   .hero-title {
     font-size: 3rem;
   }
-  
+
   .hero-subtitle {
     font-size: 1.2rem;
   }
-  
+
   .section {
     padding: 6rem 5%;
   }
-  
-  .articles-grid, .projects-grid {
+
+  .articles-grid,
+  .projects-grid {
     grid-template-columns: 1fr;
   }
 }
