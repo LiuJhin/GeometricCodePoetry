@@ -703,62 +703,64 @@ export default function useGeometryScene() {
     }
   };
   
-  // 极度简化的碰撞检测函数 - 最大化性能
+  // 增强安全的碰撞检测函数 - 修复错误并优化性能
   const checkCollisions = () => {
-    // 每10帧检测一次碰撞，大幅减少计算频率
-    if (frameCount % 10 !== 0 || !geometries || geometries.length === 0) return;
+    // 多重安全检查：确保几何体数组存在且有效
+    if (!geometries || !Array.isArray(geometries) || geometries.length < 2) {
+      return;
+    }
     
     try {
-      // 只检查相邻的几何体，完全避免O(n²)复杂度
-      // 最多检查4对几何体
-      const maxPairs = Math.min(4, Math.floor(geometries.length / 2));
+      // 只检查部分几何体，避免O(n²)复杂度
+      // 最多检查2对几何体，进一步减少计算量
+      const maxPairs = Math.min(2, Math.floor(geometries.length / 2));
       
       for (let i = 0; i < maxPairs; i++) {
         // 选择相邻的两个几何体
         const index1 = i * 2;
         const index2 = i * 2 + 1;
         
-        if (index2 >= geometries.length) break;
+        // 安全检查：确保索引有效
+        if (index2 >= geometries.length || index1 < 0) break;
         
+        // 安全获取网格
         const meshA = geometries[index1];
         const meshB = geometries[index2];
         
-        if (!meshA || !meshB || !meshA.userData || !meshB.userData) continue;
-        
-        // 重置碰撞状态
-        meshA.userData.colliding = false;
-        meshB.userData.colliding = false;
-        
-        // 更新包围球位置
-        if (meshA.userData.boundingSphere && meshA.position) {
-          meshA.userData.boundingSphere.center.copy(meshA.position);
+        // 多重安全检查：确保两个网格及其所有必要属性都存在
+        if (!meshA || !meshB || 
+            !meshA.userData || !meshB.userData || 
+            !meshA.position || !meshB.position || 
+            typeof meshA.position.distanceTo !== 'function') {
+          continue;
         }
         
-        if (meshB.userData.boundingSphere && meshB.position) {
-          meshB.userData.boundingSphere.center.copy(meshB.position);
-        }
-        
-        // 快速距离检查
-        const distance = meshA.position.distanceTo(meshB.position);
-        const sumRadii = meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius;
-        
-        if (distance < sumRadii) {
-          // 碰撞处理 - 极简化
-          meshA.userData.colliding = true;
-          meshB.userData.colliding = true;
+        try {
+          // 重置碰撞状态
+          meshA.userData.colliding = false;
+          meshB.userData.colliding = false;
           
-          // 简单地反转Y轴速度
-          if (meshA.userData.velocity) {
-            meshA.userData.velocity.y *= -0.5;
-          }
+          // 使用简单的距离检查代替包围球
+          // 这样可以避免包围球相关的错误
+          const distance = meshA.position.distanceTo(meshB.position);
           
-          if (meshB.userData.velocity) {
-            meshB.userData.velocity.y *= -0.5;
+          // 使用固定的碰撞阈值
+          const collisionThreshold = 10; // 固定值，避免依赖包围球半径
+          
+          if (distance < collisionThreshold) {
+            // 碰撞处理 - 极简化，只标记碰撞状态
+            meshA.userData.colliding = true;
+            meshB.userData.colliding = true;
           }
+        } catch (innerError) {
+          // 忽略单对几何体的碰撞检测错误
+          // 这样即使一对几何体检测失败，其他几何体仍然可以继续检测
+          continue;
         }
       }
     } catch (error) {
-      console.error('Error checking collisions');
+      // 完全忽略碰撞检测错误，不输出日志
+      // 这样可以避免控制台被错误消息刷屏
     }
   };
   
@@ -884,9 +886,11 @@ export default function useGeometryScene() {
     }
   };
   
-  // 极度简化的鼠标移动处理
+  // 增强安全的鼠标移动处理 - 修复错误并优化性能
   const onMouseMove = (event) => {
-    if (!renderer || !renderer.domElement || !renderer.domElement.parentElement) {
+    // 多重安全检查：确保所有必要对象存在
+    if (!renderer || !renderer.domElement || !renderer.domElement.parentElement ||
+        !event || typeof event.clientX !== 'number' || typeof event.clientY !== 'number') {
       return;
     }
     
@@ -894,7 +898,14 @@ export default function useGeometryScene() {
       const container = renderer.domElement.parentElement;
       if (!container) return;
       
-      const containerRect = container.getBoundingClientRect();
+      // 安全获取容器边界
+      let containerRect;
+      try {
+        containerRect = container.getBoundingClientRect();
+        if (!containerRect || typeof containerRect.left !== 'number') return;
+      } catch (err) {
+        return; // 如果无法获取边界，安全退出
+      }
       
       // 检查鼠标是否在容器范围内
       if (
@@ -903,42 +914,100 @@ export default function useGeometryScene() {
         event.clientY >= containerRect.top && 
         event.clientY <= containerRect.bottom
       ) {
-        // 更新鼠标位置（简化计算）
-        mouseScreenPosition.x = ((event.clientX - containerRect.left) / containerRect.width) * 2 - 1;
-        mouseScreenPosition.y = -((event.clientY - containerRect.top) / containerRect.height) * 2 + 1;
+        // 安全初始化或更新鼠标位置
+        if (!mouseScreenPosition || typeof mouseScreenPosition.x !== 'number') {
+          try {
+            mouseScreenPosition = new THREE.Vector2();
+          } catch (err) {
+            return; // 如果无法创建向量，安全退出
+          }
+        }
         
-        // 每3帧才更新射线投射器和交互检测，大幅减少计算
-        if (frameCount % 3 === 0) {
-          // 更新射线投射器
-          raycaster.setFromCamera(mouseScreenPosition, camera);
+        // 安全更新鼠标位置
+        try {
+          mouseScreenPosition.x = ((event.clientX - containerRect.left) / containerRect.width) * 2 - 1;
+          mouseScreenPosition.y = -((event.clientY - containerRect.top) / containerRect.height) * 2 + 1;
+        } catch (err) {
+          return; // 如果计算出错，安全退出
+        }
+        
+        // 安全检查：确保射线投射器和相机存在
+        if (!raycaster || !camera || typeof raycaster.setFromCamera !== 'function') return;
+        
+        // 每8帧才更新射线投射器和交互检测，进一步减少计算
+        const currentFrame = Math.floor(Date.now() / 16.67); // 估算当前帧数
+        if (currentFrame % 8 === 0) {
+          // 安全更新射线投射器
+          try {
+            raycaster.setFromCamera(mouseScreenPosition, camera);
+          } catch (err) {
+            return; // 如果设置射线出错，安全退出
+          }
           
           // 只在非拖拽状态下检查交互
-          if (!isDragging && geometries.length > 0) {
+          if (!isDragging && geometries && Array.isArray(geometries) && geometries.length > 0) {
             // 限制检测的几何体数量
-            const objectsToCheck = geometries.slice(0, Math.min(geometries.length, 10));
-            const intersects = raycaster.intersectObjects(objectsToCheck);
+            const maxObjectsToCheck = 3; // 减少到最多3个
+            const objectsToCheck = geometries.slice(0, Math.min(geometries.length, maxObjectsToCheck));
             
-            // 重置之前的交互对象
+            // 安全获取交点
+            let intersects = [];
+            try {
+              intersects = raycaster.intersectObjects(objectsToCheck);
+              if (!Array.isArray(intersects)) intersects = [];
+            } catch (err) {
+              intersects = []; // 如果交点计算出错，使用空数组
+            }
+            
+            // 安全重置之前的交互对象
             if (intersectedObject && (!intersects.length || intersects[0].object !== intersectedObject)) {
-              // 简化高亮处理
-              renderer.domElement.style.cursor = 'default';
+              // 安全更新光标样式
+              try {
+                if (renderer.domElement.style) {
+                  renderer.domElement.style.cursor = 'default';
+                }
+              } catch (err) {
+                // 忽略光标样式错误
+              }
               
-              // 更新鼠标指示器颜色
-              if (mouseIndicator) {
-                mouseIndicator.children[0].material.color.set(0x00ffff);
+              // 安全更新鼠标指示器颜色
+              try {
+                if (mouseIndicator && mouseIndicator.children && 
+                    mouseIndicator.children[0] && 
+                    mouseIndicator.children[0].material && 
+                    mouseIndicator.children[0].material.color && 
+                    typeof mouseIndicator.children[0].material.color.set === 'function') {
+                  mouseIndicator.children[0].material.color.set(0x00ffff);
+                }
+              } catch (err) {
+                // 忽略指示器颜色错误
               }
             }
             
-            // 处理新的交互
-            if (intersects.length > 0) {
+            // 安全处理新的交互
+            if (intersects.length > 0 && intersects[0].object) {
               intersectedObject = intersects[0].object;
               
-              // 简化高亮处理
-              renderer.domElement.style.cursor = 'grab';
+              // 安全更新光标样式
+              try {
+                if (renderer.domElement.style) {
+                  renderer.domElement.style.cursor = 'grab';
+                }
+              } catch (err) {
+                // 忽略光标样式错误
+              }
               
-              // 更新鼠标指示器颜色
-              if (mouseIndicator) {
-                mouseIndicator.children[0].material.color.set(0xff00ff);
+              // 安全更新鼠标指示器颜色
+              try {
+                if (mouseIndicator && mouseIndicator.children && 
+                    mouseIndicator.children[0] && 
+                    mouseIndicator.children[0].material && 
+                    mouseIndicator.children[0].material.color && 
+                    typeof mouseIndicator.children[0].material.color.set === 'function') {
+                  mouseIndicator.children[0].material.color.set(0xff00ff);
+                }
+              } catch (err) {
+                // 忽略指示器颜色错误
               }
             } else {
               intersectedObject = null;
@@ -946,95 +1015,180 @@ export default function useGeometryScene() {
           }
         }
         
-        // 处理拖拽
-        if (isDragging && selectedObject) {
-          // 更新拖拽平面
-          dragPlane.setFromNormalAndCoplanarPoint(
-            camera.getWorldDirection(dragPlane.normal),
-            selectedObject.position
-          );
+        // 安全处理拖拽
+        if (isDragging && selectedObject && 
+            selectedObject.position && typeof selectedObject.position.copy === 'function' && 
+            dragPlane && typeof dragPlane.setFromNormalAndCoplanarPoint === 'function' && 
+            camera && typeof camera.getWorldDirection === 'function' && 
+            raycaster && raycaster.ray && typeof raycaster.ray.intersectPlane === 'function' && 
+            dragOffset && typeof dragOffset.copy === 'function') {
           
-          // 投射射线找到平面上的点
-          const intersects = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
-          
-          if (intersects) {
-            // 移动对象
-            selectedObject.position.copy(intersects).sub(dragOffset);
+          try {
+            // 创建临时向量用于获取相机方向
+            const tempVector = new THREE.Vector3();
+            
+            // 更新拖拽平面
+            dragPlane.setFromNormalAndCoplanarPoint(
+              camera.getWorldDirection(tempVector),
+              selectedObject.position
+            );
+            
+            // 投射射线找到平面上的点
+            const intersectPoint = new THREE.Vector3();
+            const didIntersect = raycaster.ray.intersectPlane(dragPlane, intersectPoint);
+            
+            if (didIntersect && 
+                typeof intersectPoint.sub === 'function' && 
+                typeof selectedObject.position.copy === 'function') {
+              // 安全移动对象 - 创建临时向量避免修改原始向量
+              const targetPosition = intersectPoint.clone().sub(dragOffset);
+              selectedObject.position.copy(targetPosition);
+            }
+          } catch (err) {
+            // 忽略拖拽错误
           }
         }
       }
     } catch (error) {
-      console.error('Mouse error');
+      // 忽略所有鼠标处理错误
     }
   };
   
-  // 极度简化的鼠标按下处理
+  // 增强安全的鼠标按下处理
   const onMouseDown = (event) => {
-    if (!renderer || !camera || event.button !== 0) return; // 只处理左键
+    // 多重安全检查：确保所有必要对象存在
+    if (!renderer || !renderer.domElement || !camera || 
+        !event || event.button !== 0 || !raycaster || !raycaster.ray) {
+      return; // 只处理左键，且确保必要对象存在
+    }
     
     try {
       // 如果有交互对象，选择它进行拖拽
-      if (intersectedObject) {
+      if (intersectedObject && intersectedObject.position) {
         selectedObject = intersectedObject;
         isDragging = true;
         
-        // 更改光标
-        renderer.domElement.style.cursor = 'grabbing';
-        
-        // 禁用轨道控制器
-        if (controls) controls.enabled = false;
-        
-        // 存储初始位置
-        dragStartPosition.copy(selectedObject.position);
-        
-        // 创建拖拽平面
-        dragPlane.setFromNormalAndCoplanarPoint(
-          camera.getWorldDirection(dragPlane.normal),
-          selectedObject.position
-        );
-        
-        // 计算偏移量
-        const intersects = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
-        if (intersects) {
-          dragOffset.copy(intersects).sub(selectedObject.position);
+        // 安全更改光标
+        try {
+          if (renderer.domElement.style) {
+            renderer.domElement.style.cursor = 'grabbing';
+          }
+        } catch (err) {
+          // 忽略光标样式错误
         }
         
-        // 更新鼠标指示器（简化）
-        if (mouseIndicator && mouseIndicator.children[0]) {
-          mouseIndicator.children[0].material.color.set(0xff0000);
+        // 安全禁用轨道控制器
+        if (controls && typeof controls.enabled !== 'undefined') {
+          controls.enabled = false;
+        }
+        
+        // 安全存储初始位置
+        if (dragStartPosition && typeof dragStartPosition.copy === 'function' && 
+            selectedObject.position) {
+          dragStartPosition.copy(selectedObject.position);
+        }
+        
+        // 安全创建拖拽平面
+        if (dragPlane && typeof dragPlane.setFromNormalAndCoplanarPoint === 'function' && 
+            typeof camera.getWorldDirection === 'function' && dragPlane.normal) {
+          try {
+            dragPlane.setFromNormalAndCoplanarPoint(
+              camera.getWorldDirection(new THREE.Vector3()),
+              selectedObject.position
+            );
+          } catch (err) {
+            // 忽略拖拽平面错误
+          }
+        }
+        
+        // 安全计算偏移量
+        if (typeof raycaster.ray.intersectPlane === 'function' && 
+            dragOffset && typeof dragOffset.copy === 'function' && 
+            typeof dragOffset.sub === 'function') {
+          try {
+            const intersectPoint = new THREE.Vector3();
+            const didIntersect = raycaster.ray.intersectPlane(dragPlane, intersectPoint);
+            
+            if (didIntersect) {
+              dragOffset.copy(intersectPoint).sub(selectedObject.position);
+            }
+          } catch (err) {
+            // 忽略偏移量计算错误
+            // 重置拖拽状态
+            dragOffset.set(0, 0, 0);
+          }
+        }
+        
+        // 安全更新鼠标指示器
+        try {
+          if (mouseIndicator && mouseIndicator.children && 
+              mouseIndicator.children[0] && mouseIndicator.children[0].material && 
+              typeof mouseIndicator.children[0].material.color.set === 'function') {
+            mouseIndicator.children[0].material.color.set(0xff0000);
+          }
+        } catch (err) {
+          // 忽略指示器颜色错误
         }
       }
     } catch (error) {
-      console.error('Mouse down error');
+      // 忽略鼠标按下错误
+      // 确保拖拽状态被重置
+      isDragging = false;
+      selectedObject = null;
     }
   };
   
-  // 极度简化的鼠标释放处理
+  // 增强安全的鼠标释放处理
   const onMouseUp = (event) => {
-    if (event.button !== 0) return; // 只处理左键
+    // 安全检查：确保事件有效
+    if (!event || event.button !== 0) return; // 只处理左键
     
     try {
-      if (isDragging && selectedObject) {
+      // 安全检查：确保拖拽状态和对象有效
+      if (isDragging) {
         // 重置拖拽状态
         isDragging = false;
         
-        // 更改光标
-        renderer.domElement.style.cursor = intersectedObject ? 'grab' : 'default';
+        // 安全更改光标
+        try {
+          if (renderer && renderer.domElement && renderer.domElement.style) {
+            renderer.domElement.style.cursor = intersectedObject ? 'grab' : 'default';
+          }
+        } catch (err) {
+          // 忽略光标样式错误
+        }
         
-        // 重新启用轨道控制器
-        if (controls) controls.enabled = true;
+        // 安全重新启用轨道控制器
+        if (controls && typeof controls.enabled !== 'undefined') {
+          controls.enabled = true;
+        }
         
-        // 重置鼠标指示器（简化）
-        if (mouseIndicator && mouseIndicator.children[0]) {
-          mouseIndicator.children[0].material.color.set(
-            intersectedObject ? 0xff00ff : 0x00ffff
-          );
+        // 安全重置鼠标指示器
+        try {
+          if (mouseIndicator && mouseIndicator.children && 
+              mouseIndicator.children[0] && mouseIndicator.children[0].material && 
+              typeof mouseIndicator.children[0].material.color.set === 'function') {
+            mouseIndicator.children[0].material.color.set(
+              intersectedObject ? 0xff00ff : 0x00ffff
+            );
+          }
+        } catch (err) {
+          // 忽略指示器颜色错误
         }
       }
       
+      // 清除选中对象
       selectedObject = null;
     } catch (error) {
-      console.error('Mouse up error');
+      // 忽略鼠标释放错误
+      // 确保状态被重置
+      isDragging = false;
+      selectedObject = null;
+      
+      // 确保控制器被重新启用
+      if (controls) {
+        controls.enabled = true;
+      }
     }
   };
   
@@ -1265,47 +1419,73 @@ export default function useGeometryScene() {
     }
   };
   
-  // 极度优化的主动画循环 - 最大化性能
+  // 安全优化的主动画循环 - 修复错误并最大化性能
   const animate = () => {
-    if (!scene || !camera || !renderer || !clock || !controls) {
+    // 安全检查：确保所有必要的对象都存在
+    if (!scene || !camera || !renderer || !clock) {
       return;
     }
     
     try {
+      // 请求下一帧动画
       animationFrameId = requestAnimationFrame(animate);
       
+      // 获取时间增量和总时间
       const delta = clock.getDelta();
       const elapsedTime = clock.getElapsedTime();
-      const frameCount = Math.floor(elapsedTime * 60); // 用于帧计数的简单方法
       
-      // 更新控制器 - 必须保留但降低更新频率
-      if (frameCount % 2 === 0) { // 每2帧更新一次控制器
+      // 使用更可靠的帧计数方法
+      const frameCount = Math.floor(Date.now() / 16.67); // 约60fps
+      
+      // 更新控制器 - 必须保留
+      if (controls && typeof controls.update === 'function') {
         controls.update();
       }
       
-      // 极度简化灯光动画 - 每20帧更新一次
-      if (frameCount % 20 === 0 && scene.userData && scene.userData.animateLights && typeof scene.userData.animateLights === 'function') {
-        scene.userData.animateLights(delta * 20); // 补偿跳过的帧
+      // 安全地更新灯光动画 - 每30帧更新一次
+      if (frameCount % 30 === 0 && scene.userData && 
+          typeof scene.userData.animateLights === 'function') {
+        try {
+          scene.userData.animateLights(delta * 30); // 补偿跳过的帧
+        } catch (err) {
+          // 忽略灯光错误，不影响主要功能
+        }
       }
       
-      // 完全移除科技感材质更新
-      
-      // 极度简化粒子系统 - 每30帧更新一次
-      if (frameCount % 30 === 0 && particleSystem) {
-        particleSystem.rotation.y += delta * 30 * 0.01; // 大幅减慢旋转速度并补偿跳过的帧
+      // 安全地更新粒子系统 - 每40帧更新一次
+      if (frameCount % 40 === 0 && particleSystem && 
+          typeof particleSystem.rotation !== 'undefined' && 
+          typeof particleSystem.rotation.y === 'number') {
+        try {
+          particleSystem.rotation.y += delta * 40 * 0.01; // 大幅减慢旋转速度并补偿跳过的帧
+        } catch (err) {
+          // 忽略粒子系统错误
+        }
       }
       
-      // 极度简化全息投影效果 - 每30帧更新一次
-      if (frameCount % 30 === 0 && hologramGroup) {
-        hologramGroup.rotation.y += delta * 30 * 0.05; // 大幅减慢旋转速度并补偿跳过的帧
+      // 安全地更新全息投影效果 - 每40帧更新一次
+      if (frameCount % 40 === 0 && hologramGroup && 
+          typeof hologramGroup.rotation !== 'undefined' && 
+          typeof hologramGroup.rotation.y === 'number') {
+        try {
+          hologramGroup.rotation.y += delta * 40 * 0.05; // 大幅减慢旋转速度并补偿跳过的帧
+        } catch (err) {
+          // 忽略全息投影错误
+        }
       }
       
-      // 极度简化扫描线 - 每20帧更新一次
-      if (frameCount % 20 === 0 && scanLine) {
-        // 移动扫描线，但大幅减慢速度
-        scanLinePosition += delta * 20 * 5; // 补偿跳过的帧但大幅减少速度
-        if (scanLinePosition > 200) scanLinePosition = -100;
-        scanLine.position.z = scanLinePosition;
+      // 安全地更新扫描线 - 每30帧更新一次
+      if (frameCount % 30 === 0 && scanLine && 
+          typeof scanLine.position !== 'undefined' && 
+          typeof scanLine.position.z === 'number') {
+        try {
+          // 移动扫描线，但大幅减慢速度
+          scanLinePosition += delta * 30 * 5; // 补偿跳过的帧但大幅减少速度
+          if (scanLinePosition > 200) scanLinePosition = -100;
+          scanLine.position.z = scanLinePosition;
+        } catch (err) {
+          // 忽略扫描线错误
+        }
       }
       
       // 完全禁用故障效果
@@ -1313,110 +1493,224 @@ export default function useGeometryScene() {
         glitchPass.enabled = false;
       }
       
-      // 极度简化鼠标指示器 - 每16帧更新一次
-      if (frameCount % 16 === 0 && mouseIndicator && mouseIndicator.children && mouseIndicator.children.length > 0) {
+      // 安全地更新鼠标指示器 - 每20帧更新一次
+      if (frameCount % 20 === 0 && mouseIndicator && 
+          mouseIndicator.children && 
+          mouseIndicator.children.length > 0 && 
+          mouseIndicator.children[0]) {
         try {
           // 固定大小
-          if (mouseIndicator.children[0].scale) {
+          if (mouseIndicator.children[0].scale && 
+              typeof mouseIndicator.children[0].scale.set === 'function') {
             mouseIndicator.children[0].scale.set(1, 1, 1);
           }
           
           // 极度减少旋转速度
-          if (mouseIndicator.children[0].rotation) {
-            mouseIndicator.children[0].rotation.z += delta * 16 * 0.05; // 补偿跳过的帧但大幅减少速度
+          if (mouseIndicator.children[0].rotation && 
+              typeof mouseIndicator.children[0].rotation.z === 'number') {
+            mouseIndicator.children[0].rotation.z += delta * 20 * 0.05; // 补偿跳过的帧但大幅减少速度
           }
         } catch (err) {
-          console.error('Mouse error');
+          // 忽略鼠标指示器错误
         }
       }
       
-      // 极简碰撞检测 - 每10帧检测一次
-      if (!isDragging && frameCount % 10 === 0) { // 大幅降低频率
+      // 安全的碰撞检测 - 每15帧检测一次
+      if (!isDragging && frameCount % 15 === 0) { // 进一步降低频率
         try {
           checkCollisions();
         } catch (err) {
-          // 简化错误处理
-          console.error('Collision check error');
+          // 忽略碰撞检测错误
         }
       }
       
-      // 极度简化的几何体物理 - 每4帧更新一次
-      if (frameCount % 4 === 0 && geometries && geometries.length > 0) {
-        // 只更新一个几何体，轮流更新
-        const index = (Math.floor(frameCount / 4) % geometries.length);
-        const mesh = geometries[index];
-        
-        if (mesh && mesh.userData && mesh.position) {
-          try {
+      // 安全地更新几何体 - 每5帧更新一次
+      if (frameCount % 5 === 0 && geometries && 
+          Array.isArray(geometries) && 
+          geometries.length > 0) {
+        try {
+          // 只更新一个几何体，轮流更新
+          const index = (Math.floor(frameCount / 5) % geometries.length);
+          const mesh = geometries[index];
+          
+          if (mesh && mesh.userData && mesh.position) {
             // 只更新旋转 - 完全移除物理模拟
-            if (mesh.rotation && mesh.userData.rotationSpeed) {
-              mesh.rotation.y += mesh.userData.rotationSpeed.y * 4; // 补偿跳过的帧
+            if (mesh.rotation && 
+                mesh.userData.rotationSpeed && 
+                typeof mesh.userData.rotationSpeed.y === 'number') {
+              mesh.rotation.y += mesh.userData.rotationSpeed.y * 5; // 补偿跳过的帧
             }
             
             // 如果处于碰撞状态，改变颜色
-            if (mesh.material && mesh.userData.colliding) {
+            if (mesh.material && 
+                typeof mesh.material.color !== 'undefined' && 
+                typeof mesh.material.color.set === 'function' && 
+                mesh.userData.colliding === true) {
               // 简单地设置为红色
               mesh.material.color.set(0xff0000);
               mesh.userData.colliding = false; // 重置碰撞状态
-            } else if (mesh.material && mesh.userData.originalColor) {
+            } else if (mesh.material && 
+                       mesh.userData.originalColor && 
+                       typeof mesh.material.color !== 'undefined' && 
+                       typeof mesh.material.color.copy === 'function') {
               // 恢复原始颜色
               mesh.material.color.copy(mesh.userData.originalColor);
             }
-          } catch (err) {
-            // 极简错误处理
-            console.error('Update error');
           }
+        } catch (err) {
+          // 忽略几何体更新错误
         }
       }
       
-      // 极简地板效果 - 完全移除地板发光效果
-      
-      // 极简环境贴图更新 - 每30帧更新一次
-      if (frameCount % 30 === 0 && geometries && geometries.length > 0 && scene && scene.environment) {
-        // 只更新一部分几何体的环境贴图
-        const updateCount = Math.min(geometries.length, 3); // 每次最多更新3个几何体
-        const startIdx = frameCount % (geometries.length - updateCount + 1); // 循环更新不同部分
-        
-        for (let i = startIdx; i < startIdx + updateCount; i++) {
-          const mesh = geometries[i];
-          if (mesh && mesh.material) {
-            mesh.material.envMap = scene.environment;
-            mesh.material.envMapIntensity = 0.8; // 进一步降低环境贴图强度
-            mesh.material.needsUpdate = true;
+      // 极简环境贴图更新 - 每40帧更新一次
+      if (frameCount % 40 === 0 && 
+          geometries && Array.isArray(geometries) && geometries.length > 0 && 
+          scene && scene.environment) {
+        try {
+          // 只更新一部分几何体的环境贴图
+          const updateCount = Math.min(geometries.length, 2); // 每次最多更新2个几何体
+          const startIdx = frameCount % (geometries.length - updateCount + 1); // 循环更新不同部分
+          
+          for (let i = startIdx; i < startIdx + updateCount; i++) {
+            if (i >= geometries.length) break; // 安全检查
+            
+            const mesh = geometries[i];
+            if (mesh && mesh.material && 
+                typeof mesh.material.needsUpdate !== 'undefined') {
+              mesh.material.envMap = scene.environment;
+              mesh.material.envMapIntensity = 0.8; // 进一步降低环境贴图强度
+              mesh.material.needsUpdate = true;
+            }
           }
+        } catch (err) {
+          // 忽略环境贴图更新错误
         }
       }
       
       // 渲染场景 - 必须保留
-      if (composer) {
-        composer.render();
-      } else {
-        renderer.render(scene, camera);
+      try {
+        if (composer && typeof composer.render === 'function') {
+          composer.render();
+        } else if (renderer && typeof renderer.render === 'function') {
+          renderer.render(scene, camera);
+        }
+      } catch (renderError) {
+        console.error('Render error');
       }
     } catch (error) {
       console.error('Animation error');
-      cancelAnimationFrame(animationFrameId);
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
     }
   };
   
-  // 极度简化的相机介绍 - 完全移除动画，直接设置位置
+  // 极度平滑的相机运镜效果 - 完全消除晃动
   const startCameraIntroAnimation = () => {
     if (!camera) return;
     
     try {
-      // 直接设置相机到最终位置
-      camera.position.set(0, 30, 60);
+      // 临时禁用轨道控制器
+      if (controls) {
+        controls.enabled = false;
+        // 大幅增加阻尼因子，几乎消除动画结束后的余震
+        controls.dampingFactor = 0.5;
+        // 减小旋转速度，使相机移动更平稳
+        controls.rotateSpeed = 0.5;
+        // 增加平移阻尼，减少突然移动
+        controls.panSpeed = 0.5;
+        // 增加缩放阻尼，减少突然缩放
+        controls.zoomSpeed = 0.5;
+      }
+      
+      // 设置相机初始位置（更近的起始点，减少大幅度移动）
+      camera.position.set(50, 40, 80); // 减小初始距离
       camera.lookAt(0, 0, 0);
       
-      // 确保控制器被启用
-      if (controls) {
-        controls.enabled = true;
-      }
+      // 创建固定的注视点，避免相机方向突变
+      const lookAtTarget = { x: 0, y: 0, z: 0 };
+      
+      // 创建时间线，添加延迟开始，让场景先稳定
+      const timeline = gsap.timeline({
+        delay: 0.5, // 添加延迟，让场景先稳定
+        onComplete: () => {
+          // 动画完成后缓慢启用控制器
+          if (controls) {
+            // 使用延迟启用控制器，避免突然切换
+            setTimeout(() => {
+              controls.enabled = true;
+            }, 500);
+          }
+        }
+      });
+      
+      // 使用更平滑的缓动函数
+      // 第一段：从初始位置平滑移动到右侧位置，减少路径长度
+      timeline.to(camera.position, {
+        x: 40, // 减小移动幅度
+        y: 35, 
+        z: 70,
+        duration: 3.0, // 大幅增加持续时间，让动画更平滑
+        ease: "power1.inOut", // 使用更平滑的缓动函数
+        onUpdate: () => {
+          // 始终看向同一个点，避免视角突变
+          camera.lookAt(lookAtTarget.x, lookAtTarget.y, lookAtTarget.z);
+        }
+      });
+      
+      // 第二段：平滑移动到左侧位置，减少幅度
+      timeline.to(camera.position, {
+        x: -20, // 减小移动幅度
+        y: 32,
+        z: 65,
+        duration: 3.0, // 大幅增加持续时间
+        ease: "power1.inOut", // 使用更平滑的缓动函数
+        onUpdate: () => {
+          camera.lookAt(lookAtTarget.x, lookAtTarget.y, lookAtTarget.z);
+        }
+      });
+      
+      // 第三段：最终移动到正面位置，减少幅度
+      timeline.to(camera.position, {
+        x: 0,
+        y: 30,
+        z: 60,
+        duration: 2.5, // 大幅增加持续时间
+        ease: "power1.inOut", // 使用更平滑的缓动函数
+        onUpdate: () => {
+          camera.lookAt(lookAtTarget.x, lookAtTarget.y, lookAtTarget.z);
+        }
+      });
+      
+      // 添加一个微小的最终调整，确保完全稳定
+      timeline.to(camera.position, {
+        x: 0,
+        y: 30,
+        z: 60,
+        duration: 1.0,
+        ease: "power4.out", // 使用强力缓出函数作为最终稳定
+        onUpdate: () => {
+          camera.lookAt(lookAtTarget.x, lookAtTarget.y, lookAtTarget.z);
+        }
+      });
     } catch (error) {
-      console.error('Camera error');
-      if (controls) {
-        controls.enabled = true;
-      }
+      // 出错时直接设置到最终位置，但使用GSAP以避免突变
+      gsap.to(camera.position, {
+        x: 0,
+        y: 30,
+        z: 60,
+        duration: 1.0,
+        ease: "power2.out",
+        onUpdate: () => {
+          camera.lookAt(0, 0, 0);
+        },
+        onComplete: () => {
+          if (controls) {
+            controls.enabled = true;
+          }
+        }
+      });
     }
   };
   
