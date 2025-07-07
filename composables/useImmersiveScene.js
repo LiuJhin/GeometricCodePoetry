@@ -29,6 +29,14 @@ export default function useImmersiveScene() {
     // 使用纯黑色背景
     scene.background = new THREE.Color(0x000000);
     
+    // 添加环境光提供基础亮度
+    const ambientLight = new THREE.AmbientLight(0x333333); // 柔和的环境光
+    scene.add(ambientLight);
+    
+    // 添加半球光模拟环境反射
+    const hemisphereLight = new THREE.HemisphereLight(0x6666ff, 0x002244, 0.5);
+    scene.add(hemisphereLight);
+    
     // Set up camera
     const fov = 60;
     const aspect = window.innerWidth / window.innerHeight;
@@ -480,6 +488,124 @@ export default function useImmersiveScene() {
       new THREE.Color(0xff00ff)  // 品红
     ];
     
+    // 添加灯光轨道，照射到屏幕中间
+    const createLightTrack = () => {
+      // 创建一个指向屏幕中心的灯光轨道
+      const trackPoints = [];
+      const segments = 100;
+      
+      // 创建一个从远处指向中心的曲线
+      for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        // 起点在远处，终点在中心
+        const x = (1 - t) * 100 * (Math.random() * 0.4 + 0.8); // 从远处开始
+        const y = (1 - t) * 50 * (Math.random() * 0.4 + 0.8); // 从上方开始
+        const z = (1 - t) * -150; // 从后方开始
+        
+        // 添加一些波动
+        const waveX = Math.sin(t * Math.PI * 4) * 5 * (1 - t);
+        const waveY = Math.cos(t * Math.PI * 3) * 5 * (1 - t);
+        
+        trackPoints.push(new THREE.Vector3(x + waveX, y + waveY, z));
+      }
+      
+      const trackCurve = new THREE.CatmullRomCurve3(trackPoints);
+      const trackGeometry = new THREE.TubeGeometry(trackCurve, 100, 0.8, 8, false);
+      
+      // 创建更亮的发光材质
+      const trackMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9, // 增加不透明度
+        side: THREE.DoubleSide,
+        emissive: 0xffffff, // 添加自发光
+        emissiveIntensity: 1.0 // 自发光强度
+      });
+      
+      // 添加辅助光源沿着轨道
+      const trackLight = new THREE.PointLight(0xffffff, 1, 30);
+      trackLight.position.set(trackPoints[Math.floor(trackPoints.length/2)].x, 
+                             trackPoints[Math.floor(trackPoints.length/2)].y, 
+                             trackPoints[Math.floor(trackPoints.length/2)].z);
+      scene.add(trackLight);
+      
+      const lightTrack = new THREE.Mesh(trackGeometry, trackMaterial);
+      
+      // 添加沿轨道移动的光点
+      const lightPointGeometry = new THREE.SphereGeometry(2, 16, 16);
+      const lightPointMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9
+      });
+      
+      const lightPoint = new THREE.Mesh(lightPointGeometry, lightPointMaterial);
+      lightPoint.userData.trackCurve = trackCurve;
+      lightPoint.userData.trackTime = 0;
+      lightPoint.userData.speed = 0.2 + Math.random() * 0.3;
+      
+      // 添加光晕
+      const glowGeometry = new THREE.SphereGeometry(4, 16, 16);
+      const glowMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          glowColor: { value: new THREE.Color(0xffffff) }
+        },
+        vertexShader: `
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+          
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 glowColor;
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+          
+          void main() {
+            float intensity = pow(0.7 - dot(vNormal, vec3(0, 0, 1.0)), 4.0);
+            gl_FragColor = vec4(glowColor, 1.0) * intensity;
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide
+      });
+      
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      lightPoint.add(glow);
+      
+      // 添加聚光灯，照射到中心 - 增强亮度
+      const spotLight = new THREE.SpotLight(0xffffff, 5, 300, Math.PI / 6, 0.5, 1); // 增加强度和距离
+      spotLight.position.set(0, 0, 0);
+      spotLight.target.position.set(0, 0, 0); // 目标是场景中心
+      lightPoint.add(spotLight);
+      lightPoint.add(spotLight.target);
+      
+      // 添加点光源增强光效
+      const pointLight = new THREE.PointLight(0xffffff, 2, 50);
+      pointLight.position.set(0, 0, 0);
+      lightPoint.add(pointLight);
+      
+      // 将光点添加到场景
+      scene.add(lightPoint);
+      scene.add(lightTrack);
+      
+      return { lightTrack, lightPoint };
+    };
+    
+    // 创建3个灯光轨道
+    const lightTracks = [];
+    for (let i = 0; i < 3; i++) {
+      lightTracks.push(createLightTrack());
+    }
+    
+    // 将灯光轨道添加到userData中，以便在动画循环中更新
+    lineGroup.userData.lightTracks = lightTracks;
+    
     for (let i = 0; i < lineCount; i++) {
       // 创建更多变化的曲线路径
       let curve;
@@ -672,9 +798,47 @@ export default function useImmersiveScene() {
     // Update controls
     controls.update();
     
-    // 只更新线条
+    // 更新线条和灯光轨道
     if (neonLines) {
       neonLines.rotation.y = elapsedTime * 0.05;
+      
+      // 更新灯光轨道上的光点
+      if (neonLines.userData.lightTracks) {
+        neonLines.userData.lightTracks.forEach(track => {
+          const { lightPoint } = track;
+          
+          // 更新光点在轨道上的位置
+          lightPoint.userData.trackTime += lightPoint.userData.speed * 0.005;
+          if (lightPoint.userData.trackTime > 1) {
+            lightPoint.userData.trackTime = 0;
+          }
+          
+          // 获取轨道上的位置
+          const position = lightPoint.userData.trackCurve.getPointAt(lightPoint.userData.trackTime);
+          lightPoint.position.copy(position);
+          
+          // 获取下一个点，用于确定朝向
+          const lookAtPosition = lightPoint.userData.trackCurve.getPointAt(
+            (lightPoint.userData.trackTime + 0.01) % 1
+          );
+          
+          // 让光点朝向轨道前方
+          lightPoint.lookAt(lookAtPosition);
+          
+          // 让聚光灯始终指向场景中心
+          if (lightPoint.children.length >= 2) {
+            const spotLight = lightPoint.children[1];
+            if (spotLight.isSpotLight) {
+              spotLight.target.position.set(0, 0, 0);
+              spotLight.target.updateMatrixWorld();
+            }
+          }
+          
+          // 添加脉冲效果
+          const pulseScale = 1 + Math.sin(elapsedTime * 3) * 0.2;
+          lightPoint.scale.set(pulseScale, pulseScale, pulseScale);
+        });
+      }
       
       neonLines.children.forEach((line, i) => {
         const lineGeometry = line.geometry;

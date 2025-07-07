@@ -127,12 +127,12 @@ export default function useGeometryScene() {
     if (!scene) return;
     
     try {
-      // Ambient light - slightly brighter
-      const ambientLight = new THREE.AmbientLight(0x505050, 1.2);
+      // Ambient light - 显著增强环境光亮度
+      const ambientLight = new THREE.AmbientLight(0x606060, 1.8);
       scene.add(ambientLight);
       
-      // Main directional light (sun-like) with improved shadows
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      // Main directional light (sun-like) with improved shadows - 增强强度
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
       directionalLight.position.set(50, 100, 50);
       directionalLight.castShadow = true;
       directionalLight.shadow.mapSize.width = 4096; // Higher resolution shadows
@@ -150,8 +150,8 @@ export default function useGeometryScene() {
       // const directionalLightHelper = new THREE.DirectionalLightHelper(directionalLight, 10);
       // scene.add(directionalLightHelper);
       
-      // Enhanced colored point lights with shadows
-      const pointLight1 = new THREE.PointLight(0x00ffff, 2, 150);
+      // Enhanced colored point lights with shadows - 增强强度和范围
+      const pointLight1 = new THREE.PointLight(0x00ffff, 4, 200);
       pointLight1.position.set(30, 40, 30);
       pointLight1.castShadow = true;
       pointLight1.shadow.mapSize.width = 1024;
@@ -162,15 +162,15 @@ export default function useGeometryScene() {
       // const pointLightHelper1 = new THREE.PointLightHelper(pointLight1, 5);
       // scene.add(pointLightHelper1);
       
-      const pointLight2 = new THREE.PointLight(0xff00ff, 2, 150);
+      const pointLight2 = new THREE.PointLight(0xff00ff, 4, 200);
       pointLight2.position.set(-30, 40, -30);
       pointLight2.castShadow = true;
       pointLight2.shadow.mapSize.width = 1024;
       pointLight2.shadow.mapSize.height = 1024;
       scene.add(pointLight2);
       
-      // Add a warm spotlight for dramatic effect
-      const spotLight = new THREE.SpotLight(0xff9900, 2, 200, Math.PI / 6, 0.5, 1);
+      // Add a warm spotlight for dramatic effect - 增强强度和范围
+      const spotLight = new THREE.SpotLight(0xff9900, 5, 300, Math.PI / 6, 0.5, 1);
       spotLight.position.set(0, 100, 0);
       spotLight.castShadow = true;
       spotLight.shadow.mapSize.width = 1024;
@@ -183,9 +183,14 @@ export default function useGeometryScene() {
       scene.add(spotLightTarget);
       spotLight.target = spotLightTarget;
       
-      // Add a subtle hemisphere light for more natural lighting
-      const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.5);
+      // Add a stronger hemisphere light for more natural lighting
+      const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1.0);
       scene.add(hemisphereLight);
+      
+      // 添加额外的点光源增强整体亮度
+      const pointLight3 = new THREE.PointLight(0xffffff, 3, 200);
+      pointLight3.position.set(0, 80, 0);
+      scene.add(pointLight3);
       
       // Add fog to the scene for depth
       scene.fog = new THREE.FogExp2(0x000000, 0.002);
@@ -363,17 +368,51 @@ export default function useGeometryScene() {
         mesh.userData.mass = scale * 10; // Mass based on scale
         mesh.userData.restitution = 0.7 + Math.random() * 0.3; // Bounciness
         mesh.userData.colliding = false; // Track collision state
-        mesh.userData.originalColor = mesh.material.color.clone();
-        mesh.userData.originalEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : new THREE.Color(0x000000);
+        // 安全地克隆颜色和发光属性
+        try {
+          if (mesh.material && mesh.material.color && typeof mesh.material.color.clone === 'function') {
+            mesh.userData.originalColor = mesh.material.color.clone();
+          } else {
+            mesh.userData.originalColor = new THREE.Color(0xffffff);
+          }
+          
+          if (mesh.material && mesh.material.emissive && typeof mesh.material.emissive.clone === 'function') {
+            mesh.userData.originalEmissive = mesh.material.emissive.clone();
+          } else {
+            mesh.userData.originalEmissive = new THREE.Color(0x000000);
+          }
+        } catch (err) {
+          console.error('Error cloning material colors:', err);
+          mesh.userData.originalColor = new THREE.Color(0xffffff);
+          mesh.userData.originalEmissive = new THREE.Color(0x000000);
+        }
         
         // Create a bounding sphere for collision detection
         // Use the geometry's bounding sphere and adjust by scale
         geometry.computeBoundingSphere();
         const radius = geometry.boundingSphere.radius * scale;
-        mesh.userData.boundingSphere = new THREE.Sphere(
-          mesh.position.clone(),
-          radius
-        );
+        // Ensure mesh.position exists and is valid before cloning
+        try {
+          if (mesh.position && typeof mesh.position.clone === 'function') {
+            mesh.userData.boundingSphere = new THREE.Sphere(
+              mesh.position.clone(),
+              radius
+            );
+          } else {
+            // Fallback to origin if position is undefined or clone is not available
+            mesh.userData.boundingSphere = new THREE.Sphere(
+              new THREE.Vector3(0, 0, 0),
+              radius
+            );
+          }
+        } catch (err) {
+          console.error('Error creating bounding sphere:', err);
+          // Fallback to origin if any error occurs
+          mesh.userData.boundingSphere = new THREE.Sphere(
+            new THREE.Vector3(0, 0, 0),
+            radius
+          );
+        }
         
         // Add to scene and array
         scene.add(mesh);
@@ -403,17 +442,33 @@ export default function useGeometryScene() {
       // Check each pair of geometries for collisions
       for (let i = 0; i < geometries.length; i++) {
         const meshA = geometries[i];
-        if (!meshA || !meshA.userData) continue;
+        if (!meshA || !meshA.userData || !meshA.userData.boundingSphere || !meshA.position) continue;
         
-        // Update bounding sphere position
-        meshA.userData.boundingSphere.center.copy(meshA.position);
+        // Update bounding sphere position - safely
+        try {
+          if (meshA.userData.boundingSphere.center && 
+              typeof meshA.userData.boundingSphere.center.copy === 'function' && 
+              meshA.position) {
+            meshA.userData.boundingSphere.center.copy(meshA.position);
+          }
+        } catch (err) {
+          console.error('Error updating meshA bounding sphere position:', err);
+        }
         
         for (let j = i + 1; j < geometries.length; j++) {
           const meshB = geometries[j];
-          if (!meshB || !meshB.userData) continue;
+          if (!meshB || !meshB.userData || !meshB.userData.boundingSphere || !meshB.position) continue;
           
-          // Update bounding sphere position
-          meshB.userData.boundingSphere.center.copy(meshB.position);
+          // Update bounding sphere position - safely
+          try {
+            if (meshB.userData.boundingSphere.center && 
+                typeof meshB.userData.boundingSphere.center.copy === 'function' && 
+                meshB.position) {
+              meshB.userData.boundingSphere.center.copy(meshB.position);
+            }
+          } catch (err) {
+            console.error('Error updating meshB bounding sphere position:', err);
+          }
           
           // Check for sphere-sphere intersection
           const distance = meshA.position.distanceTo(meshB.position);
@@ -446,6 +501,9 @@ export default function useGeometryScene() {
   // Handle collision physics between two meshes
   const handleCollision = (meshA, meshB) => {
     try {
+      // Ensure both meshes have valid positions
+      if (!meshA.position || !meshB.position) return;
+      
       // Calculate collision normal
       const normal = new THREE.Vector3().subVectors(meshB.position, meshA.position).normalize();
       
@@ -468,11 +526,20 @@ export default function useGeometryScene() {
       let impulseScalar = -(1 + restitution) * velocityAlongNormal;
       impulseScalar /= (1 / meshA.userData.mass) + (1 / meshB.userData.mass);
       
-      // Apply impulse
-      const impulse = normal.clone().multiplyScalar(impulseScalar);
-      
-      meshA.userData.velocity.sub(impulse.clone().multiplyScalar(1 / meshA.userData.mass));
-      meshB.userData.velocity.add(impulse.clone().multiplyScalar(1 / meshB.userData.mass));
+      // Apply impulse - safely
+      try {
+        const impulse = normal.clone().multiplyScalar(impulseScalar);
+        
+        if (meshA.userData.velocity && typeof meshA.userData.velocity.sub === 'function') {
+          meshA.userData.velocity.sub(impulse.clone().multiplyScalar(1 / meshA.userData.mass));
+        }
+        
+        if (meshB.userData.velocity && typeof meshB.userData.velocity.add === 'function') {
+          meshB.userData.velocity.add(impulse.clone().multiplyScalar(1 / meshB.userData.mass));
+        }
+      } catch (err) {
+        console.error('Error applying impulse in collision:', err);
+      }
       
       // Add a bit of random motion for more interesting behavior
       meshA.userData.velocity.add(new THREE.Vector3(
@@ -488,12 +555,24 @@ export default function useGeometryScene() {
       ));
       
       // Slightly separate the objects to prevent sticking
-      const penetrationDepth = (meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius) - 
-                               meshA.position.distanceTo(meshB.position);
-      const correction = normal.clone().multiplyScalar(penetrationDepth * 0.5);
-      
-      meshA.position.sub(correction);
-      meshB.position.add(correction);
+      // Ensure both meshes have valid positions and bounding spheres
+      try {
+        if (meshA.position && meshB.position && 
+            typeof meshA.position.distanceTo === 'function' &&
+            typeof meshA.position.sub === 'function' &&
+            typeof meshB.position.add === 'function' &&
+            meshA.userData && meshA.userData.boundingSphere && 
+            meshB.userData && meshB.userData.boundingSphere) {
+          const penetrationDepth = (meshA.userData.boundingSphere.radius + meshB.userData.boundingSphere.radius) - 
+                                 meshA.position.distanceTo(meshB.position);
+          const correction = normal.clone().multiplyScalar(penetrationDepth * 0.5);
+          
+          meshA.position.sub(correction);
+          meshB.position.add(correction);
+        }
+      } catch (err) {
+        console.error('Error separating objects after collision:', err);
+      }
     } catch (error) {
       console.error('Error handling collision:', error);
     }
@@ -795,83 +874,185 @@ export default function useGeometryScene() {
       // Update controls
       controls.update();
       
-      // Update mouse indicator animation
-      if (mouseIndicator) {
-        // Subtle pulsing animation
-        const pulse = 1 + Math.sin(elapsedTime * 5) * 0.05;
-        mouseIndicator.children[0].scale.set(pulse, pulse, 1);
-        
-        // Rotate the ring slightly
-        mouseIndicator.children[0].rotation.z += delta * 0.5;
+      // Update mouse indicator animation - safely
+      try {
+        if (mouseIndicator && mouseIndicator.children && mouseIndicator.children.length > 0) {
+          // Subtle pulsing animation
+          const pulse = 1 + Math.sin(elapsedTime * 5) * 0.05;
+          if (mouseIndicator.children[0].scale && typeof mouseIndicator.children[0].scale.set === 'function') {
+            mouseIndicator.children[0].scale.set(pulse, pulse, 1);
+          }
+          
+          // Rotate the ring slightly
+          if (mouseIndicator.children[0].rotation && typeof mouseIndicator.children[0].rotation.z === 'number') {
+            mouseIndicator.children[0].rotation.z += delta * 0.5;
+          }
+        }
+      } catch (err) {
+        console.error('Error updating mouse indicator animation:', err);
       }
       
-      // Skip collision checks for objects being dragged
-      if (!isDragging) {
-        checkCollisions();
+      // Skip collision checks for objects being dragged - safely
+      try {
+        if (!isDragging) {
+          checkCollisions();
+        }
+      } catch (err) {
+        console.error('Error during collision checks in animation loop:', err);
       }
       
       // Animate geometries with physics
       if (geometries && geometries.length > 0) {
         geometries.forEach((mesh) => {
-          if (!mesh || !mesh.userData) return;
+          if (!mesh || !mesh.userData || !mesh.userData.velocity || !mesh.position) return;
           
-          // Apply gravity
-          mesh.userData.velocity.y -= 0.01; // Gravity effect
+          // Apply gravity and velocity - safely
+          try {
+            // Apply gravity
+            if (mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number') {
+              mesh.userData.velocity.y -= 0.01; // Gravity effect
+            }
+            
+            // Apply velocity to position
+            if (mesh.position && mesh.userData.velocity) {
+              if (typeof mesh.position.x === 'number' && typeof mesh.userData.velocity.x === 'number') {
+                mesh.position.x += mesh.userData.velocity.x;
+              }
+              if (typeof mesh.position.y === 'number' && typeof mesh.userData.velocity.y === 'number') {
+                mesh.position.y += mesh.userData.velocity.y;
+              }
+              if (typeof mesh.position.z === 'number' && typeof mesh.userData.velocity.z === 'number') {
+                mesh.position.z += mesh.userData.velocity.z;
+              }
+            }
+            
+            // Apply damping (air resistance)
+            if (mesh.userData.velocity && typeof mesh.userData.velocity.multiplyScalar === 'function') {
+              mesh.userData.velocity.multiplyScalar(0.99);
+            }
+          } catch (err) {
+            console.error('Error updating physics for mesh:', err);
+          }
           
-          // Apply velocity to position
-          mesh.position.x += mesh.userData.velocity.x;
-          mesh.position.y += mesh.userData.velocity.y;
-          mesh.position.z += mesh.userData.velocity.z;
+          // Rotate each geometry if rotationSpeed exists - safely
+          try {
+            if (mesh.rotation && mesh.userData.rotationSpeed) {
+              if (typeof mesh.rotation.x === 'number' && typeof mesh.userData.rotationSpeed.x === 'number') {
+                mesh.rotation.x += mesh.userData.rotationSpeed.x;
+              }
+              if (typeof mesh.rotation.y === 'number' && typeof mesh.userData.rotationSpeed.y === 'number') {
+                mesh.rotation.y += mesh.userData.rotationSpeed.y;
+              }
+              if (typeof mesh.rotation.z === 'number' && typeof mesh.userData.rotationSpeed.z === 'number') {
+                mesh.rotation.z += mesh.userData.rotationSpeed.z;
+              }
+            }
+          } catch (err) {
+            console.error('Error updating rotation for mesh:', err);
+          }
           
-          // Apply damping (air resistance)
-          mesh.userData.velocity.multiplyScalar(0.99);
-          
-          // Rotate each geometry
-          mesh.rotation.x += mesh.userData.rotationSpeed.x;
-          mesh.rotation.y += mesh.userData.rotationSpeed.y;
-          mesh.rotation.z += mesh.userData.rotationSpeed.z;
-          
-          // Float effect (reduced since we have physics now)
-          const floatEffect = Math.sin(elapsedTime * mesh.userData.floatSpeed) * 
-                           (mesh.userData.floatHeight * 0.3);
-          mesh.position.y += floatEffect * delta * 10; // Apply as delta-based adjustment
+          // Float effect (reduced since we have physics now) - safely
+          try {
+            if (mesh.position && 
+                typeof mesh.position.y === 'number' &&
+                typeof mesh.userData.floatSpeed === 'number' && 
+                typeof mesh.userData.floatHeight === 'number') {
+              const floatEffect = Math.sin(elapsedTime * mesh.userData.floatSpeed) * 
+                               (mesh.userData.floatHeight * 0.3);
+              mesh.position.y += floatEffect * delta * 10; // Apply as delta-based adjustment
+            }
+          } catch (err) {
+            console.error('Error applying float effect for mesh:', err);
+          }
           
           // Boundary checks - bounce off invisible walls
-          const bounceRestitution = 0.7; // How bouncy the walls are
-          
-          // X boundaries (left/right walls)
-          if (Math.abs(mesh.position.x) > 120) {
-            mesh.position.x = Math.sign(mesh.position.x) * 120;
-            mesh.userData.velocity.x *= -bounceRestitution;
-          }
-          
-          // Z boundaries (front/back walls)
-          if (Math.abs(mesh.position.z) > 120) {
-            mesh.position.z = Math.sign(mesh.position.z) * 120;
-            mesh.userData.velocity.z *= -bounceRestitution;
-          }
-          
-          // Y boundaries (floor and ceiling)
-          if (mesh.position.y < 2) { // Floor collision
-            mesh.position.y = 2;
-            mesh.userData.velocity.y *= -bounceRestitution;
+          if (mesh.position) {
+            const bounceRestitution = 0.7; // How bouncy the walls are
             
-            // Add some friction when hitting the floor
-            mesh.userData.velocity.x *= 0.95;
-            mesh.userData.velocity.z *= 0.95;
-          } else if (mesh.position.y > 100) { // Ceiling collision
-            mesh.position.y = 100;
-            mesh.userData.velocity.y *= -bounceRestitution;
-          }
-          
-          // Visual effect for floor collision
-          if (mesh.position.y <= 2.1 && Math.abs(mesh.userData.velocity.y) < 0.02) {
-            // Object is resting on the floor
-            if (mesh.material.emissive && !mesh.userData.colliding) {
-              // Subtle glow effect for resting objects
-              const restingGlow = new THREE.Color(0x111111);
-              mesh.material.emissive.copy(restingGlow);
-              mesh.material.needsUpdate = true;
+            // X boundaries (left/right walls) - safely
+            try {
+              if (mesh.position && typeof mesh.position.x === 'number' && 
+                  mesh.userData.velocity && typeof mesh.userData.velocity.x === 'number') {
+                if (Math.abs(mesh.position.x) > 120) {
+                  mesh.position.x = Math.sign(mesh.position.x) * 120;
+                  mesh.userData.velocity.x *= -bounceRestitution;
+                }
+              }
+            } catch (err) {
+              console.error('Error handling X boundaries for mesh:', err);
+            }
+            
+            // Z boundaries (front/back walls) - safely
+            try {
+              if (mesh.position && typeof mesh.position.z === 'number' && 
+                  mesh.userData.velocity && typeof mesh.userData.velocity.z === 'number') {
+                if (Math.abs(mesh.position.z) > 120) {
+                  mesh.position.z = Math.sign(mesh.position.z) * 120;
+                  mesh.userData.velocity.z *= -bounceRestitution;
+                }
+              }
+            } catch (err) {
+              console.error('Error handling Z boundaries for mesh:', err);
+            }
+            
+            // Y boundaries (floor and ceiling) - safely
+            try {
+              if (mesh.position && typeof mesh.position.y === 'number') {
+                if (mesh.position.y < 2) { // Floor collision
+                  mesh.position.y = 2;
+                  if (mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number') {
+                    mesh.userData.velocity.y *= -bounceRestitution;
+                    
+                    // Add some friction when hitting the floor
+                    if (typeof mesh.userData.velocity.x === 'number') {
+                      mesh.userData.velocity.x *= 0.95;
+                    }
+                    if (typeof mesh.userData.velocity.z === 'number') {
+                      mesh.userData.velocity.z *= 0.95;
+                    }
+                  }
+                } else if (mesh.position.y > 100) { // Ceiling collision
+                  mesh.position.y = 100;
+                  if (mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number') {
+                    mesh.userData.velocity.y *= -bounceRestitution;
+                  }
+                } else if (mesh.position.y < -20) { // If object falls too far below, reset it
+                  // Reset position to a random height
+                  if (typeof mesh.position.set === 'function') {
+                    mesh.position.set(
+                      (Math.random() - 0.5) * 10,  // x
+                      10 + Math.random() * 5,     // y - start above the scene
+                      (Math.random() - 0.5) * 10   // z
+                    );
+                  }
+                  
+                  // Reset velocity
+                  if (mesh.userData.velocity && typeof mesh.userData.velocity.set === 'function') {
+                    mesh.userData.velocity.set(0, 0, 0);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Error handling Y boundaries for mesh:', err);
+            }
+            
+            // Visual effect for floor collision - safely
+            try {
+              if (mesh.position && typeof mesh.position.y === 'number' && 
+                  mesh.userData.velocity && typeof mesh.userData.velocity.y === 'number' &&
+                  mesh.position.y <= 2.1 && Math.abs(mesh.userData.velocity.y) < 0.02) {
+                // Object is resting on the floor
+                if (mesh.material && mesh.material.emissive && 
+                    typeof mesh.material.emissive.copy === 'function' && 
+                    !mesh.userData.colliding) {
+                  // Subtle glow effect for resting objects
+                  const restingGlow = new THREE.Color(0x111111);
+                  mesh.material.emissive.copy(restingGlow);
+                  mesh.material.needsUpdate = true;
+                }
+              }
+            } catch (err) {
+              console.error('Error applying floor resting effect for mesh:', err);
             }
           }
         });
