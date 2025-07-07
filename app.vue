@@ -1,8 +1,78 @@
 <template>
   <div class="app-container">
-    <NuxtPage />
+    <LoadingScreen 
+      :progress="loadingProgress" 
+      @complete="onLoadingComplete" 
+      v-if="!loadingComplete"
+    />
+    <NuxtPage v-show="loadingComplete" />
   </div>
 </template>
+
+<script setup>
+import { ref, onMounted, watch } from 'vue';
+import useGeometryScene from '~/composables/useGeometryScene';
+
+// 获取几何场景
+const geometryScene = useGeometryScene();
+
+// 加载状态
+const loadingProgress = ref(0);
+const loadingComplete = ref(false);
+
+// 监听实际资源加载进度
+onMounted(() => {
+  // 初始化场景（不可见）
+  const dummyContainer = document.createElement('div');
+  dummyContainer.style.position = 'absolute';
+  dummyContainer.style.opacity = '0';
+  dummyContainer.style.pointerEvents = 'none';
+  dummyContainer.style.width = '100px';
+  dummyContainer.style.height = '100px';
+  document.body.appendChild(dummyContainer);
+  
+  // 初始化场景以触发资源加载
+  geometryScene.init(dummyContainer);
+  
+  // 定时检查加载进度
+  const progressInterval = setInterval(() => {
+    const progress = geometryScene.getLoadingProgress();
+    loadingProgress.value = progress;
+    
+    // 如果加载完成，清除定时器
+    if (progress === 100) {
+      clearInterval(progressInterval);
+      console.log('加载完成，进度达到100%');
+    }
+  }, 100);
+  
+  // 如果5秒后仍未加载完成，确保进度至少达到95%
+  setTimeout(() => {
+    if (loadingProgress.value < 95) {
+      loadingProgress.value = 95;
+    }
+  }, 5000);
+  
+  // 如果10秒后仍未加载完成，将进度提高到99%，但不强制完成
+  setTimeout(() => {
+    if (loadingProgress.value < 99) {
+      loadingProgress.value = 99;
+    }
+    // 注意：不再强制设置为100%，确保只有在真正加载完成时才进入首页
+  }, 10000);
+});
+
+// 加载完成回调
+const onLoadingComplete = () => {
+  loadingComplete.value = true;
+  
+  // 清理不可见容器
+  const dummyContainer = document.querySelector('div[style*="opacity: 0"]');
+  if (dummyContainer) {
+    document.body.removeChild(dummyContainer);
+  }
+};
+</script>
 
 <style>
 * {

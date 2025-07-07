@@ -42,6 +42,24 @@ export default function useGeometryScene() {
   let dragPlane = new THREE.Plane();
   let dragOffset = new THREE.Vector3();
   
+  // 加载管理器和加载进度
+  let loadingManager;
+  let loadingProgress = 0;
+  let totalResources = 0;
+  let loadedResources = 0;
+  
+  // 获取加载进度
+  const getLoadingProgress = () => {
+    // 确保只有在所有资源都加载完成时才返回100%
+    if (loadingProgress >= 99.5 && loadingProgress < 100) {
+      // 检查是否所有资源都已加载
+      if (loadedResources < totalResources) {
+        return 99;
+      }
+    }
+    return loadingProgress;
+  };
+  
   // Initialize Three.js scene
   const init = (container) => {
     if (!container) {
@@ -50,6 +68,36 @@ export default function useGeometryScene() {
     }
     
     try {
+      // 初始化加载管理器
+      loadingManager = new THREE.LoadingManager();
+      
+      // 加载开始回调
+      loadingManager.onStart = (url, itemsLoaded, itemsTotal) => {
+        console.log('Started loading: ' + url);
+        totalResources = itemsTotal;
+      };
+      
+      // 加载进度回调
+      loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+        console.log(`Loading file: ${url} (${itemsLoaded}/${itemsTotal})`);
+        loadedResources = itemsLoaded;
+        totalResources = itemsTotal;
+        loadingProgress = Math.floor((itemsLoaded / itemsTotal) * 100);
+      };
+      
+      // 加载完成回调
+      loadingManager.onLoad = () => {
+        console.log('Loading complete!');
+        loadedResources = totalResources;
+        loadingProgress = 100;
+        console.log(`所有资源加载完成: ${loadedResources}/${totalResources}`);
+      };
+      
+      // 加载错误回调
+      loadingManager.onError = (url) => {
+        console.error('Error loading: ' + url);
+      };
+      
       // Set up scene
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x000000);
@@ -528,7 +576,25 @@ export default function useGeometryScene() {
       data[i + 3] = 1.0;   // A (不透明)
     }
     
-    return data;
+    // 创建纹理并使用加载管理器
+    const texture = new THREE.DataTexture(
+      data,
+      width,
+      height,
+      THREE.RGBAFormat,
+      THREE.FloatType
+    );
+    
+    // 手动触发加载管理器的进度更新
+    if (loadingManager) {
+      loadingManager.itemStart('noise-texture');
+      setTimeout(() => {
+        loadingManager.itemEnd('noise-texture');
+      }, 100);
+    }
+    
+    texture.needsUpdate = true;
+    return texture;
   };
   
   // 生成法线贴图数据
@@ -566,7 +632,25 @@ export default function useGeometryScene() {
       }
     }
     
-    return normalData;
+    // 创建纹理并使用加载管理器
+    const texture = new THREE.DataTexture(
+      normalData,
+      width,
+      height,
+      THREE.RGBAFormat,
+      THREE.FloatType
+    );
+    
+    // 手动触发加载管理器的进度更新
+    if (loadingManager) {
+      loadingManager.itemStart('normal-map');
+      setTimeout(() => {
+        loadingManager.itemEnd('normal-map');
+      }, 150);
+    }
+    
+    texture.needsUpdate = true;
+    return texture;
   };
   
   // 生成金属纹理数据 - 用于金属度贴图
@@ -593,7 +677,25 @@ export default function useGeometryScene() {
       data[i + 3] = 1.0;       // A
     }
     
-    return data;
+    // 创建纹理并使用加载管理器
+    const texture = new THREE.DataTexture(
+      data,
+      width,
+      height,
+      THREE.RGBAFormat,
+      THREE.FloatType
+    );
+    
+    // 手动触发加载管理器的进度更新
+    if (loadingManager) {
+      loadingManager.itemStart('metalness-texture');
+      setTimeout(() => {
+        loadingManager.itemEnd('metalness-texture');
+      }, 120);
+    }
+    
+    texture.needsUpdate = true;
+    return texture;
   };
   
   // 创建几何体 - 优化版本
@@ -1886,6 +1988,7 @@ export default function useGeometryScene() {
   
   return {
     init,
-    cleanup
+    cleanup,
+    getLoadingProgress
   };
 }
