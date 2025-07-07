@@ -59,6 +59,11 @@ export default function useGeometryScene() {
 
   // 获取加载进度
   const getLoadingProgress = () => {
+    // 如果没有资源需要加载，直接返回100%
+    if (totalResources === 0) {
+      return 100;
+    }
+    
     // 确保只有在所有资源都加载完成时才返回100%
     if (loadingProgress >= 99.5 && loadingProgress < 100) {
       // 检查是否所有资源都已加载
@@ -66,6 +71,12 @@ export default function useGeometryScene() {
         return 99;
       }
     }
+    
+    // 如果加载管理器已经完成加载，但进度未达到100%，强制返回100%
+    if (loadedResources >= totalResources && totalResources > 0) {
+      return 100;
+    }
+    
     return loadingProgress;
   };
 

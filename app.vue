@@ -53,24 +53,38 @@ onMounted(() => {
     }
   }, 5000);
   
-  // 如果10秒后仍未加载完成，将进度提高到99%，但不强制完成
+  // 如果10秒后仍未加载完成，将进度提高到99%
   setTimeout(() => {
     if (loadingProgress.value < 99) {
       loadingProgress.value = 99;
     }
-    // 注意：不再强制设置为100%，确保只有在真正加载完成时才进入首页
   }, 10000);
+  
+  // 如果15秒后仍未加载完成，强制完成加载
+  setTimeout(() => {
+    if (loadingProgress.value < 100) {
+      console.log('加载超时，强制完成');
+      loadingProgress.value = 100;
+    }
+  }, 15000);
 });
 
 // 加载完成回调
 const onLoadingComplete = () => {
+  console.log('加载完成回调被触发');
   loadingComplete.value = true;
   
   // 清理不可见容器
   const dummyContainer = document.querySelector('div[style*="opacity: 0"]');
   if (dummyContainer) {
+    console.log('清理不可见容器');
     document.body.removeChild(dummyContainer);
+  } else {
+    console.log('未找到不可见容器');
   }
+  
+  // 确保加载进度为100%
+  loadingProgress.value = 100;
 };
 </script>
 
